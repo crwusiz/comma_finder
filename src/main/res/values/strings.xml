@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Comma Finder</string>
+    <string name="widget_icon">,</string>
+    <string name="widget_status_default">COMMA</string>
+    <string name="widget_action_hint">탭하여 접속</string>
+</resources>
