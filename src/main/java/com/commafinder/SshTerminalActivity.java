@@ -63,6 +63,10 @@ public class SshTerminalActivity extends AppCompatActivity {
     private static final int MAX_MACRO_COUNT = 100;
     private static final int MAX_MACRO_LABEL_LENGTH = 100;
     private static final int MAX_MACRO_COMMAND_LENGTH = 10_000;
+    private static final String CUSTOM_KEY_FILE_NAME = "custom_id_rsa";
+    private static final String DEFAULT_KEY_FILE_NAME = "id_rsa_current";
+    private static final String DEFAULT_KEY_DOWNLOAD_FILE_NAME = "id_rsa_download";
+    private static final String DEFAULT_KEY_URL = "https://jmtechn.com/comma_finder/id_rsa.pem";
     private static final Pattern OSC_PATTERN =
             Pattern.compile("\u001B].*?(?:\u0007|\u001B\\\\)");
     private static final Pattern CHARSET_PATTERN =
@@ -148,7 +152,7 @@ public class SshTerminalActivity extends AppCompatActivity {
                             InputStream selectedInput = getContentResolver().openInputStream(uri);
                             if (selectedInput == null) return;
                             try (InputStream input = selectedInput;
-                                 FileOutputStream output = openFileOutput("custom_id_rsa", MODE_PRIVATE)) {
+                                 FileOutputStream output = openFileOutput(CUSTOM_KEY_FILE_NAME, MODE_PRIVATE)) {
                                 copy(input, output);
                             }
 
@@ -658,8 +662,12 @@ public class SshTerminalActivity extends AppCompatActivity {
         });
 
         builder.setNegativeButton("기본 키로 초기화", (dialog, which) -> {
+            if (!clearDefaultKeyCache()) {
+                Toast.makeText(this, "저장된 기본 키를 삭제하지 못했습니다.", Toast.LENGTH_SHORT).show();
+                return;
+            }
             getSharedPreferences(PREF_NAME, MODE_PRIVATE).edit().putBoolean(KEY_USE_CUSTOM_KEY, false).apply();
-            Toast.makeText(this, "기본 키로 초기화되었습니다.", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "기본 키를 새로 다운로드합니다.", Toast.LENGTH_SHORT).show();
             reconnectSSH();
         });
 
@@ -1024,8 +1032,8 @@ public class SshTerminalActivity extends AppCompatActivity {
         ChannelShell newChannel = null;
         try {
             if (!isConnectionActive(generation)) return;
-            File customKeyFile = new File(getFilesDir(), "custom_id_rsa");
-            File defaultKeyFile = new File(getFilesDir(), "id_rsa_current");
+            File customKeyFile = new File(getFilesDir(), CUSTOM_KEY_FILE_NAME);
+            File defaultKeyFile = new File(getFilesDir(), DEFAULT_KEY_FILE_NAME);
             File targetKeyFile;
 
             boolean useCustomKey = getSharedPreferences(PREF_NAME, MODE_PRIVATE)
@@ -1034,16 +1042,13 @@ public class SshTerminalActivity extends AppCompatActivity {
             if (useCustomKey && customKeyFile.exists()) {
                 printConsole("사용자 개인 키를 불러옵니다.\n");
                 targetKeyFile = customKeyFile;
+                validateKeyForSsh(targetKeyFile);
             } else {
-                printConsole("기본 키 다운로드 중...\n");
-                downloadFile("https://jmtechn.com/comma_finder/id_rsa.pem", defaultKeyFile);
-                if (!isConnectionActive(generation)) return;
-                printConsole("기본 키 다운로드 완료.\n");
+                if (!prepareDefaultKey(defaultKeyFile, generation)) return;
                 targetKeyFile = defaultKeyFile;
             }
 
             if (!isConnectionActive(generation)) return;
-            readAndValidateKey(targetKeyFile);
 
             JSch jsch = new JSch();
             jsch.addIdentity(targetKeyFile.getAbsolutePath());
@@ -1142,6 +1147,63 @@ public class SshTerminalActivity extends AppCompatActivity {
         session = null;
         if (oldChannel != null) oldChannel.disconnect();
         if (oldSession != null) oldSession.disconnect();
+    }
+
+    private boolean prepareDefaultKey(File defaultKeyFile, int generation) throws Exception {
+        if (defaultKeyFile.isFile()) {
+            try {
+                validateKeyForSsh(defaultKeyFile);
+                printConsole("저장된 기본 키를 사용합니다.\n");
+                return true;
+            } catch (Exception invalidCache) {
+                Log.w(TAG, "Cached default key is invalid; downloading it again", invalidCache);
+                printConsole("저장된 기본 키가 손상되어 다시 다운로드합니다.\n");
+            }
+        } else {
+            printConsole("저장된 기본 키가 없어 다운로드합니다.\n");
+        }
+
+        if (!isConnectionActive(generation)) return false;
+
+        File temporaryKeyFile = new File(getFilesDir(), DEFAULT_KEY_DOWNLOAD_FILE_NAME);
+        if (temporaryKeyFile.exists() && !temporaryKeyFile.delete()) {
+            throw new Exception("이전 기본 키 임시 파일을 정리할 수 없습니다.");
+        }
+
+        try {
+            printConsole("기본 키 다운로드 중...\n");
+            downloadFile(DEFAULT_KEY_URL, temporaryKeyFile);
+            if (!isConnectionActive(generation)) return false;
+            validateKeyForSsh(temporaryKeyFile);
+
+            if (defaultKeyFile.exists() && !defaultKeyFile.delete()) {
+                throw new Exception("기존 기본 키를 교체할 수 없습니다.");
+            }
+            if (!temporaryKeyFile.renameTo(defaultKeyFile)) {
+                throw new Exception("다운로드한 기본 키를 저장할 수 없습니다.");
+            }
+            printConsole("기본 키 다운로드 및 저장 완료.\n");
+            return true;
+        } finally {
+            if (temporaryKeyFile.exists() && !temporaryKeyFile.delete()) {
+                Log.w(TAG, "Could not delete temporary default key file");
+            }
+        }
+    }
+
+    private boolean clearDefaultKeyCache() {
+        File defaultKeyFile = new File(getFilesDir(), DEFAULT_KEY_FILE_NAME);
+        File downloadFile = new File(getFilesDir(), DEFAULT_KEY_DOWNLOAD_FILE_NAME);
+        boolean defaultDeleted = !defaultKeyFile.exists() || defaultKeyFile.delete();
+        boolean downloadDeleted = !downloadFile.exists() || downloadFile.delete();
+        return defaultDeleted && downloadDeleted;
+    }
+
+    private void validateKeyForSsh(File keyFile) throws Exception {
+        readAndValidateKey(keyFile);
+        JSch validator = new JSch();
+        validator.addIdentity(keyFile.getAbsolutePath());
+        validator.removeAllIdentity();
     }
 
     private void readAndValidateKey(File targetKeyFile) throws Exception {
