@@ -9,6 +9,7 @@ import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.SystemClock;
 import android.text.Spannable;
 import android.text.SpannableStringBuilder;
 import android.text.style.BackgroundColorSpan;
@@ -17,6 +18,7 @@ import android.text.style.StyleSpan;
 import android.util.Log;
 import android.util.TypedValue;
 import android.view.View;
+import android.view.ViewConfiguration;
 import android.widget.EditText;
 import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
@@ -67,6 +69,9 @@ public class SshTerminalActivity extends AppCompatActivity {
     private static final String DEFAULT_KEY_FILE_NAME = "id_rsa_current";
     private static final String DEFAULT_KEY_DOWNLOAD_FILE_NAME = "id_rsa_download";
     private static final String DEFAULT_KEY_URL = "https://jmtechn.com/comma_finder/id_rsa.pem";
+    private static final String TMUX_DETACH_COMMAND = "`d";
+    private static final String TMUX_CLOSE_LEGACY_COMMAND = "`x";
+    private static final String TMUX_CLOSE_COMMAND = "`xy\n";
     private static final Pattern OSC_PATTERN =
             Pattern.compile("\u001B].*?(?:\u0007|\u001B\\\\)");
     private static final Pattern CHARSET_PATTERN =
@@ -96,6 +101,8 @@ public class SshTerminalActivity extends AppCompatActivity {
 
     // ★ 커스텀 키보드 대소문자/특수기호 처리를 위한 변수 선언
     private boolean isShift = false;
+    private boolean isCapsLock = false;
+    private long lastShiftTapTime = 0L;
     private final List<TextView> shiftableButtons = new ArrayList<>();
     private TextView btnShift;
 
@@ -463,12 +470,12 @@ public class SshTerminalActivity extends AppCompatActivity {
         kb.setVisibility(View.GONE);
         shiftableButtons.clear();
 
-        // 사용자 요청 배열 (각 줄 13개)
+        // 4줄을 유지하면서 일반 QWERTY 키보드와 가까운 위치로 기능 키를 배치한다.
         String[][] rows = {
-                {"Tab", "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "-", "="},
-                {"Shift", "q", "w", "e", "r", "t", "y", "u", "i", "o", "p", "*", "|"},
-                {"BS", "DEL", "a", "s", "d", "f", "g", "h", "j", "k", "l", ";", "'"},
-                {"Space", "Enter", "z", "x", "c", "v", "b", "n", "m", ",", ".", "/", "^"}
+                {"1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "-", "=", "BS"},
+                {"Tab", "q", "w", "e", "r", "t", "y", "u", "i", "o", "p", "*", "|"},
+                {"DEL", "a", "s", "d", "f", "g", "h", "j", "k", "l", ";", "'", "Enter"},
+                {"Shift", "z", "x", "c", "v", "b", "Space", "n", "m", ",", ".", "/", "^"}
         };
 
         for (String[] row : rows) {
@@ -502,9 +509,10 @@ public class SshTerminalActivity extends AppCompatActivity {
                 bg.setStroke(dp(1), Color.parseColor("#444444"));
                 btn.setBackground(bg);
 
-                // 모든 버튼의 가중치를 1.0f로 동일하게 부여하여 13칸 균일 격자 생성
+                // 스페이스는 가운데를 유지하면서 일반 키보다 넓게 표시한다.
+                float keyWeight = key.equals("Space") ? 3.0f : 1.0f;
                 LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                        0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f);
+                        0, LinearLayout.LayoutParams.WRAP_CONTENT, keyWeight);
                 params.setMargins(dp(1), dp(3), dp(1), dp(3));
                 btn.setLayoutParams(params);
 
@@ -516,6 +524,7 @@ public class SshTerminalActivity extends AppCompatActivity {
                 btn.setOnClickListener(v -> {
                     int start = etInput.getSelectionStart();
                     if (start < 0) start = etInput.getText().length();
+                    if (!key.equals("Shift")) lastShiftTapTime = 0L;
 
                     switch (key) {
                         case "BS" -> {
@@ -535,12 +544,9 @@ public class SshTerminalActivity extends AppCompatActivity {
                                 sendCommand(new byte[]{9});
                             }
                         }
-                        case "Shift" -> {
-                            isShift = !isShift;
-                            updateKeyboardCasing();
-                        }
+                        case "Shift" -> handleShiftTap();
                         default -> {
-                            String charToInsert = isShift ? getShiftedChar(key) : key;
+                            String charToInsert = getKeyboardChar(key);
                             etInput.getText().insert(start, charToInsert);
                             if (isShift) {
                                 isShift = false;
@@ -554,6 +560,34 @@ public class SshTerminalActivity extends AppCompatActivity {
             kb.addView(rowLayout);
         }
         return kb;
+    }
+
+    private void handleShiftTap() {
+        long now = SystemClock.uptimeMillis();
+        boolean isDoubleTap = lastShiftTapTime > 0
+                && now - lastShiftTapTime <= ViewConfiguration.getDoubleTapTimeout();
+
+        if (isDoubleTap) {
+            isCapsLock = true;
+            isShift = false;
+            lastShiftTapTime = 0L;
+        } else {
+            if (isCapsLock) {
+                isCapsLock = false;
+                isShift = false;
+            } else {
+                isShift = !isShift;
+            }
+            lastShiftTapTime = now;
+        }
+        updateKeyboardCasing();
+    }
+
+    private String getKeyboardChar(String base) {
+        if (isCapsLock && base.length() == 1 && Character.isLetter(base.charAt(0))) {
+            return base.toUpperCase(Locale.ROOT);
+        }
+        return isShift ? getShiftedChar(base) : base;
     }
 
     // 알파벳과 특수기호가 대소문자 변환이 가능한지 판별
@@ -579,12 +613,15 @@ public class SshTerminalActivity extends AppCompatActivity {
     private void updateKeyboardCasing() {
         for (TextView btn : shiftableButtons) {
             String base = (String) btn.getTag();
-            btn.setText(isShift ? getShiftedChar(base) : base);
+            btn.setText(getKeyboardChar(base));
         }
         if (btnShift != null) {
             GradientDrawable bg = (GradientDrawable) btnShift.getBackground();
-            bg.setColor(isShift ? Color.parseColor("#4FC3F7") : Color.parseColor("#222222"));
-            btnShift.setTextColor(isShift ? Color.BLACK : Color.WHITE);
+            btnShift.setText(isCapsLock ? "⇪" : "⇧");
+            bg.setColor(isCapsLock
+                    ? Color.parseColor("#00E676")
+                    : isShift ? Color.parseColor("#4FC3F7") : Color.parseColor("#222222"));
+            btnShift.setTextColor(isShift || isCapsLock ? Color.BLACK : Color.WHITE);
         }
     }
 
@@ -638,7 +675,9 @@ public class SshTerminalActivity extends AppCompatActivity {
         boolean changed = false;
         if (cleanCmd.contains("tmux a") || cleanCmd.contains("tmux attach")) {
             if (!isTmuxMode) { isTmuxMode = true; changed = true; }
-        } else if (cleanCmd.equals("`d") || cleanCmd.equals("`x")) {
+        } else if (cleanCmd.equals(TMUX_DETACH_COMMAND)
+                || cleanCmd.equals(TMUX_CLOSE_LEGACY_COMMAND)
+                || cleanCmd.equals(TMUX_CLOSE_COMMAND.trim())) {
             if (isTmuxMode) { isTmuxMode = false; changed = true; }
         }
 
@@ -723,7 +762,7 @@ public class SshTerminalActivity extends AppCompatActivity {
 
         boolean hasDetach = false;
         for (MacroItem item : macroList) {
-            if ("`d".equals(item.command)) {
+            if (TMUX_DETACH_COMMAND.equals(item.command)) {
                 hasDetach = true;
                 if (!"세션 분리".equals(item.label)) {
                     item.label = "세션 분리";
@@ -733,14 +772,19 @@ public class SshTerminalActivity extends AppCompatActivity {
             }
         }
         if (!hasDetach) {
-            macroList.add(1, new MacroItem("세션 분리", "`d", false));
+            macroList.add(1, new MacroItem("세션 분리", TMUX_DETACH_COMMAND, false));
             changed = true;
         }
 
         boolean hasClose = false;
         for (MacroItem item : macroList) {
-            if ("`x".equals(item.command)) {
+            if (TMUX_CLOSE_LEGACY_COMMAND.equals(item.command)
+                    || TMUX_CLOSE_COMMAND.equals(item.command)) {
                 hasClose = true;
+                if (!TMUX_CLOSE_COMMAND.equals(item.command)) {
+                    item.command = TMUX_CLOSE_COMMAND;
+                    changed = true;
+                }
                 if (!"세션 종료".equals(item.label)) {
                     item.label = "세션 종료";
                     changed = true;
@@ -749,7 +793,7 @@ public class SshTerminalActivity extends AppCompatActivity {
             }
         }
         if (!hasClose) {
-            macroList.add(2, new MacroItem("세션 종료", "`x", false));
+            macroList.add(2, new MacroItem("세션 종료", TMUX_CLOSE_COMMAND, false));
             changed = true;
         }
 
@@ -851,7 +895,7 @@ public class SshTerminalActivity extends AppCompatActivity {
         for (int i = 0; i < macroList.size(); i++) {
             MacroItem item = macroList.get(i);
 
-            boolean isTmuxSpecialMacro = item.command.equals("`d") || item.command.equals("`x");
+            boolean isTmuxSpecialMacro = isTmuxControlCommand(item.command);
 
             if (isTmuxMode) {
                 if (!isTmuxSpecialMacro) continue;
@@ -1104,6 +1148,12 @@ public class SshTerminalActivity extends AppCompatActivity {
             if (newSession != null) newSession.disconnect();
             clearConnectionReferences(newSession, newChannel);
         }
+    }
+
+    private boolean isTmuxControlCommand(String command) {
+        return TMUX_DETACH_COMMAND.equals(command)
+                || TMUX_CLOSE_LEGACY_COMMAND.equals(command)
+                || TMUX_CLOSE_COMMAND.equals(command);
     }
 
     private synchronized boolean assignSession(int generation, Session newSession) {
