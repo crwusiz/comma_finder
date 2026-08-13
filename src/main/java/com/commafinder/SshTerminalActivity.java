@@ -9,7 +9,6 @@ import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Bundle;
-import android.os.SystemClock;
 import android.text.Spannable;
 import android.text.SpannableStringBuilder;
 import android.text.style.BackgroundColorSpan;
@@ -18,7 +17,6 @@ import android.text.style.StyleSpan;
 import android.util.Log;
 import android.util.TypedValue;
 import android.view.View;
-import android.view.ViewConfiguration;
 import android.widget.EditText;
 import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
@@ -99,12 +97,49 @@ public class SshTerminalActivity extends AppCompatActivity {
     private HorizontalScrollView macroScroll;
     private TextView btnToggleKb;
 
-    // ★ 커스텀 키보드 대소문자/특수기호 처리를 위한 변수 선언
-    private boolean isShift = false;
-    private boolean isCapsLock = false;
-    private long lastShiftTapTime = 0L;
-    private final List<TextView> shiftableButtons = new ArrayList<>();
-    private TextView btnShift;
+    private static final String SHIFT_INACTIVE_KEY = "SHIFT_INACTIVE";
+    private static final String SHIFT_ACTIVE_KEY = "SHIFT_ACTIVE";
+    private static final String BACKSPACE_KEY = "BACKSPACE";
+    private static final String NUMERIC_KEY = "NUMERIC";
+    private static final String SYMBOL_KEY = "SYMBOL";
+    private static final String ABC_KEY = "ABC";
+    private static final String TAB_KEY = "TAB";
+    private static final String SPACE_KEY = "SPACE";
+    private static final String ENTER_KEY = "ENTER";
+
+    private enum KeyboardMode {
+        LOWERCASE, UPPERCASE, NUMBERS, SPECIALS
+    }
+
+    private static final String[][] LOWERCASE_KEYBOARD = {
+            {"q", "w", "e", "r", "t", "y", "u", "i", "o", "p"},
+            {"a", "s", "d", "f", "g", "h", "j", "k", "l"},
+            {SHIFT_INACTIVE_KEY, "z", "x", "c", "v", "b", "n", "m", BACKSPACE_KEY},
+            {NUMERIC_KEY, TAB_KEY, "/", "-", SPACE_KEY, ".", ENTER_KEY}
+    };
+
+    private static final String[][] UPPERCASE_KEYBOARD = {
+            {"Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"},
+            {"A", "S", "D", "F", "G", "H", "J", "K", "L"},
+            {SHIFT_ACTIVE_KEY, "Z", "X", "C", "V", "B", "N", "M", BACKSPACE_KEY},
+            {NUMERIC_KEY, TAB_KEY, "/", "-", SPACE_KEY, ".", ENTER_KEY}
+    };
+
+    private static final String[][] NUMBER_KEYBOARD = {
+            {"1", "2", "3", "4", "5", "6", "7", "8", "9", "0"},
+            {"-", "/", ":", ";", "(", ")", "$", "&", "@", "\""},
+            {SYMBOL_KEY, "_", ",", "?", "!", "`", BACKSPACE_KEY},
+            {ABC_KEY, TAB_KEY, SPACE_KEY, ".", ENTER_KEY}
+    };
+
+    private static final String[][] SPECIAL_KEYBOARD = {
+            {"[", "]", "{", "}", "#", "%", "^", "*", "+", "="},
+            {"_", "\\", "|", "~", "<", ">", "€", "£", "¥", "•"},
+            {NUMERIC_KEY, "-", ",", "?", "!", "'", BACKSPACE_KEY},
+            {ABC_KEY, TAB_KEY, SPACE_KEY, ".", ENTER_KEY}
+    };
+
+    private KeyboardMode keyboardMode = KeyboardMode.LOWERCASE;
 
     private volatile Session session;
     private volatile ChannelShell channel;
@@ -468,17 +503,14 @@ public class SshTerminalActivity extends AppCompatActivity {
         kb.setBackgroundColor(Color.parseColor("#050505"));
         kb.setPadding(0, dp(8), 0, 0);
         kb.setVisibility(View.GONE);
-        shiftableButtons.clear();
+        renderKeyboard(kb);
+        return kb;
+    }
 
-        // 4줄을 유지하면서 일반 QWERTY 키보드와 가까운 위치로 기능 키를 배치한다.
-        String[][] rows = {
-                {"1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "-", "=", "BS"},
-                {"Tab", "q", "w", "e", "r", "t", "y", "u", "i", "o", "p", "*", "|"},
-                {"DEL", "a", "s", "d", "f", "g", "h", "j", "k", "l", ";", "'", "Enter"},
-                {"Shift", "z", "x", "c", "v", "b", "Space", "n", "m", ",", ".", "/", "^"}
-        };
+    private void renderKeyboard(LinearLayout keyboard) {
+        keyboard.removeAllViews();
 
-        for (String[] row : rows) {
+        for (String[] row : getCurrentKeyboardLayout()) {
             LinearLayout rowLayout = new LinearLayout(this);
             rowLayout.setOrientation(LinearLayout.HORIZONTAL);
             rowLayout.setLayoutParams(new LinearLayout.LayoutParams(
@@ -488,54 +520,36 @@ public class SshTerminalActivity extends AppCompatActivity {
             for (String key : row) {
                 TextView btn = new TextView(this);
                 btn.setTag(key);
-
-                String displayText = switch (key) {
-                    case "Space" -> "␣";
-                    case "BS" -> "⌫";
-                    case "DEL" -> "Del";
-                    case "Shift" -> "⇧";
-                    default -> key;
-                };
-
-                btn.setText(displayText);
-                btn.setTextColor(Color.WHITE);
+                btn.setText(getKeyLabel(key));
+                boolean isActiveShift = SHIFT_ACTIVE_KEY.equals(key);
+                btn.setTextColor(isActiveShift ? Color.BLACK : Color.WHITE);
                 btn.setTextSize(15f);
                 btn.setGravity(android.view.Gravity.CENTER);
                 btn.setPadding(0, dp(12), 0, dp(12));
 
                 GradientDrawable bg = new GradientDrawable();
-                bg.setColor(Color.parseColor("#222222"));
+                bg.setColor(Color.parseColor(isActiveShift ? "#4FC3F7" : "#222222"));
                 bg.setCornerRadius(dp(6));
                 bg.setStroke(dp(1), Color.parseColor("#444444"));
                 btn.setBackground(bg);
 
-                // 스페이스는 가운데를 유지하면서 일반 키보다 넓게 표시한다.
-                float keyWeight = key.equals("Space") ? 3.0f : 1.0f;
+                float keyWeight = getKeyWeight(key);
                 LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                         0, LinearLayout.LayoutParams.WRAP_CONTENT, keyWeight);
                 params.setMargins(dp(1), dp(3), dp(1), dp(3));
                 btn.setLayoutParams(params);
 
-                if (isShiftable(key)) {
-                    shiftableButtons.add(btn);
-                }
-                if (key.equals("Shift")) btnShift = btn;
-
                 btn.setOnClickListener(v -> {
                     int start = etInput.getSelectionStart();
                     if (start < 0) start = etInput.getText().length();
-                    if (!key.equals("Shift")) lastShiftTapTime = 0L;
 
                     switch (key) {
-                        case "BS" -> {
+                        case BACKSPACE_KEY -> {
                             if (start > 0) etInput.getText().delete(start - 1, start);
                         }
-                        case "DEL" -> {
-                            if (start < etInput.length()) etInput.getText().delete(start, start + 1);
-                        }
-                        case "Enter" -> sendCommand(etInput.getText().toString() + "\n");
-                        case "Space" -> etInput.getText().insert(start, " ");
-                        case "Tab" -> {
+                        case ENTER_KEY -> sendCommand(etInput.getText().toString() + "\n");
+                        case SPACE_KEY -> etInput.getText().insert(start, " ");
+                        case TAB_KEY -> {
                             String currentTxt = etInput.getText().toString();
                             if (!currentTxt.isEmpty()) {
                                 sendCommand(currentTxt + "\t");
@@ -544,85 +558,55 @@ public class SshTerminalActivity extends AppCompatActivity {
                                 sendCommand(new byte[]{9});
                             }
                         }
-                        case "Shift" -> handleShiftTap();
-                        default -> {
-                            String charToInsert = getKeyboardChar(key);
-                            etInput.getText().insert(start, charToInsert);
-                            if (isShift) {
-                                isShift = false;
-                                updateKeyboardCasing();
-                            }
-                        }
+                        case SHIFT_INACTIVE_KEY -> switchKeyboardMode(KeyboardMode.UPPERCASE);
+                        case SHIFT_ACTIVE_KEY -> switchKeyboardMode(KeyboardMode.LOWERCASE);
+                        case NUMERIC_KEY -> switchKeyboardMode(KeyboardMode.NUMBERS);
+                        case SYMBOL_KEY -> switchKeyboardMode(KeyboardMode.SPECIALS);
+                        case ABC_KEY -> switchKeyboardMode(KeyboardMode.LOWERCASE);
+                        default -> etInput.getText().insert(start, key);
                     }
                 });
                 rowLayout.addView(btn);
             }
-            kb.addView(rowLayout);
+            keyboard.addView(rowLayout);
         }
-        return kb;
     }
 
-    private void handleShiftTap() {
-        long now = SystemClock.uptimeMillis();
-        boolean isDoubleTap = lastShiftTapTime > 0
-                && now - lastShiftTapTime <= ViewConfiguration.getDoubleTapTimeout();
-
-        if (isDoubleTap) {
-            isCapsLock = true;
-            isShift = false;
-            lastShiftTapTime = 0L;
-        } else {
-            if (isCapsLock) {
-                isCapsLock = false;
-                isShift = false;
-            } else {
-                isShift = !isShift;
-            }
-            lastShiftTapTime = now;
-        }
-        updateKeyboardCasing();
-    }
-
-    private String getKeyboardChar(String base) {
-        if (isCapsLock && base.length() == 1 && Character.isLetter(base.charAt(0))) {
-            return base.toUpperCase(Locale.ROOT);
-        }
-        return isShift ? getShiftedChar(base) : base;
-    }
-
-    // 알파벳과 특수기호가 대소문자 변환이 가능한지 판별
-    private boolean isShiftable(String key) {
-        if (key.length() == 1 && Character.isLetter(key.charAt(0))) return true;
-        String symbols = "1234567890-=;',./";
-        return symbols.contains(key);
-    }
-
-    // Shift 적용 시 표시 및 입력될 기호 매핑
-    private String getShiftedChar(String base) {
-        return switch (base) {
-            case "1" -> "!"; case "2" -> "@"; case "3" -> "#";
-            case "4" -> "$"; case "5" -> "%"; case "6" -> "^";
-            case "7" -> "&"; case "8" -> "*"; case "9" -> "(";
-            case "0" -> ")"; case "-" -> "_"; case "=" -> "+";
-            case ";" -> ":"; case "'" -> "\""; case "," -> "<";
-            case "." -> ">"; case "/" -> "?";
-            default -> base.toUpperCase(Locale.ROOT);
+    private String[][] getCurrentKeyboardLayout() {
+        return switch (keyboardMode) {
+            case LOWERCASE -> LOWERCASE_KEYBOARD;
+            case UPPERCASE -> UPPERCASE_KEYBOARD;
+            case NUMBERS -> NUMBER_KEYBOARD;
+            case SPECIALS -> SPECIAL_KEYBOARD;
         };
     }
 
-    private void updateKeyboardCasing() {
-        for (TextView btn : shiftableButtons) {
-            String base = (String) btn.getTag();
-            btn.setText(getKeyboardChar(base));
-        }
-        if (btnShift != null) {
-            GradientDrawable bg = (GradientDrawable) btnShift.getBackground();
-            btnShift.setText(isCapsLock ? "⇪" : "⇧");
-            bg.setColor(isCapsLock
-                    ? Color.parseColor("#00E676")
-                    : isShift ? Color.parseColor("#4FC3F7") : Color.parseColor("#222222"));
-            btnShift.setTextColor(isShift || isCapsLock ? Color.BLACK : Color.WHITE);
-        }
+    private void switchKeyboardMode(KeyboardMode mode) {
+        keyboardMode = mode;
+        renderKeyboard(customKeyboardLayout);
+    }
+
+    private String getKeyLabel(String key) {
+        return switch (key) {
+            case SHIFT_INACTIVE_KEY, SHIFT_ACTIVE_KEY -> "⇧";
+            case BACKSPACE_KEY -> "⌫";
+            case NUMERIC_KEY -> "123";
+            case SYMBOL_KEY -> "#+=";
+            case ABC_KEY -> "ABC";
+            case TAB_KEY -> "Tab";
+            case SPACE_KEY -> "␣";
+            case ENTER_KEY -> "↵";
+            default -> key;
+        };
+    }
+
+    private float getKeyWeight(String key) {
+        return switch (key) {
+            case SPACE_KEY -> 3.0f;
+            case ENTER_KEY, SHIFT_INACTIVE_KEY, SHIFT_ACTIVE_KEY,
+                    BACKSPACE_KEY, NUMERIC_KEY, SYMBOL_KEY, ABC_KEY, TAB_KEY -> 1.35f;
+            default -> 1.0f;
+        };
     }
 
     private void updateConnectionStatus(String status) {

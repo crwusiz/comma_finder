@@ -2,8 +2,8 @@ plugins {
     id 'com.android.application'
 }
 
-def appVersionCode = 55
-def appVersionName = "1.44"
+def appVersionCode = 56
+def appVersionName = "1.45"
 
 android {
     namespace = 'com.commafinder'
@@ -42,7 +42,7 @@ androidComponents {
 }
 
 dependencies {
-    implementation 'androidx.appcompat:appcompat:1.7.1'
+    implementation 'androidx.appcompat:appcompat:1.8.0'
     implementation 'com.google.android.material:material:1.14.0'
     implementation 'androidx.constraintlayout:constraintlayout:2.2.2'
 
