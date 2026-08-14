@@ -522,15 +522,26 @@ public class SshTerminalActivity extends AppCompatActivity {
                 btn.setTag(key);
                 btn.setText(getKeyLabel(key));
                 boolean isActiveShift = SHIFT_ACTIVE_KEY.equals(key);
-                btn.setTextColor(isActiveShift ? Color.BLACK : Color.WHITE);
-                btn.setTextSize(15f);
+                boolean isEnterKey = ENTER_KEY.equals(key);
+                boolean isLargeSpecialKey = BACKSPACE_KEY.equals(key)
+                        || SPACE_KEY.equals(key)
+                        || ENTER_KEY.equals(key)
+                        || SHIFT_INACTIVE_KEY.equals(key)
+                        || SHIFT_ACTIVE_KEY.equals(key);
+                btn.setTextColor(isActiveShift || isEnterKey ? Color.BLACK : Color.WHITE);
+                btn.setTextSize(isLargeSpecialKey ? 24f : 15f);
+                btn.setTypeface(android.graphics.Typeface.DEFAULT,
+                        isLargeSpecialKey ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
+                btn.setContentDescription(getKeyContentDescription(key));
                 btn.setGravity(android.view.Gravity.CENTER);
                 btn.setPadding(0, dp(12), 0, dp(12));
 
                 GradientDrawable bg = new GradientDrawable();
-                bg.setColor(Color.parseColor(isActiveShift ? "#4FC3F7" : "#222222"));
+                bg.setColor(Color.parseColor(isEnterKey
+                        ? "#00E676"
+                        : isActiveShift ? "#4FC3F7" : "#222222"));
                 bg.setCornerRadius(dp(6));
-                bg.setStroke(dp(1), Color.parseColor("#444444"));
+                bg.setStroke(dp(1), Color.parseColor(isEnterKey ? "#69F0AE" : "#444444"));
                 btn.setBackground(bg);
 
                 float keyWeight = getKeyWeight(key);
@@ -597,6 +608,16 @@ public class SshTerminalActivity extends AppCompatActivity {
             case SPACE_KEY -> "␣";
             case ENTER_KEY -> "↵";
             default -> key;
+        };
+    }
+
+    private String getKeyContentDescription(String key) {
+        return switch (key) {
+            case SHIFT_INACTIVE_KEY, SHIFT_ACTIVE_KEY -> "시프트";
+            case BACKSPACE_KEY -> "백스페이스";
+            case SPACE_KEY -> "스페이스";
+            case ENTER_KEY -> "엔터";
+            default -> getKeyLabel(key);
         };
     }
 

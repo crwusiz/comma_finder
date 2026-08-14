@@ -2,8 +2,8 @@ plugins {
     id 'com.android.application'
 }
 
-def appVersionCode = 56
-def appVersionName = "1.45"
+def appVersionCode = 57
+def appVersionName = "1.46"
 
 android {
     namespace = 'com.commafinder'
