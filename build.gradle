@@ -2,8 +2,30 @@ plugins {
     id 'com.android.application'
 }
 
-def appVersionCode = 57
-def appVersionName = "1.46"
+def appVersionCode = 58
+def appVersionName = "1.47"
+
+// Package app/id_rsa.pem into the APK at build time. Override with
+// -PembeddedSshKeyFile=<path> when a different key file is needed.
+def embeddedSshKeyPath = providers.gradleProperty("embeddedSshKeyFile")
+        .orElse(layout.projectDirectory.file("id_rsa.pem").asFile.absolutePath)
+def embeddedSshKeyFile = embeddedSshKeyPath.map { rootProject.file(it) }
+def generatedSshKeyAssetsDir = layout.buildDirectory.dir("generated/sshKeyAssets")
+
+tasks.register("prepareEmbeddedSshKey", Sync) {
+    from(embeddedSshKeyFile)
+    into(generatedSshKeyAssetsDir)
+    rename { "id_rsa.pem" }
+
+    doFirst {
+        File keyFile = embeddedSshKeyFile.get()
+        if (!keyFile.isFile()) {
+            throw new GradleException(
+                    "Embedded SSH key not found: ${keyFile}. " +
+                            "Set -PembeddedSshKeyFile=<path> to override it.")
+        }
+    }
+}
 
 android {
     namespace = 'com.commafinder'
@@ -31,6 +53,14 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
+    sourceSets {
+        main.assets.srcDir(generatedSshKeyAssetsDir)
+    }
+
+}
+
+tasks.named("preBuild").configure {
+    dependsOn("prepareEmbeddedSshKey")
 }
 
 androidComponents {

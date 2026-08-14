@@ -65,8 +65,8 @@ public class SshTerminalActivity extends AppCompatActivity {
     private static final int MAX_MACRO_COMMAND_LENGTH = 10_000;
     private static final String CUSTOM_KEY_FILE_NAME = "custom_id_rsa";
     private static final String DEFAULT_KEY_FILE_NAME = "id_rsa_current";
-    private static final String DEFAULT_KEY_DOWNLOAD_FILE_NAME = "id_rsa_download";
-    private static final String DEFAULT_KEY_URL = "https://jmtechn.com/comma_finder/id_rsa.pem";
+    private static final String DEFAULT_KEY_STAGING_FILE_NAME = "id_rsa_staging";
+    private static final String DEFAULT_KEY_ASSET_NAME = "id_rsa.pem";
     private static final String TMUX_DETACH_COMMAND = "`d";
     private static final String TMUX_CLOSE_LEGACY_COMMAND = "`x";
     private static final String TMUX_CLOSE_COMMAND = "`xy\n";
@@ -711,7 +711,7 @@ public class SshTerminalActivity extends AppCompatActivity {
                 return;
             }
             getSharedPreferences(PREF_NAME, MODE_PRIVATE).edit().putBoolean(KEY_USE_CUSTOM_KEY, false).apply();
-            Toast.makeText(this, "기본 키를 새로 다운로드합니다.", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "APK에 내장된 기본 키를 복원합니다.", Toast.LENGTH_SHORT).show();
             reconnectSSH();
         });
 
@@ -1211,23 +1211,26 @@ public class SshTerminalActivity extends AppCompatActivity {
                 printConsole("저장된 기본 키를 사용합니다.\n");
                 return true;
             } catch (Exception invalidCache) {
-                Log.w(TAG, "Cached default key is invalid; downloading it again", invalidCache);
-                printConsole("저장된 기본 키가 손상되어 다시 다운로드합니다.\n");
+                Log.w(TAG, "Cached default key is invalid; restoring the embedded key", invalidCache);
+                printConsole("저장된 기본 키가 손상되어 APK 내장 키로 복원합니다.\n");
             }
         } else {
-            printConsole("저장된 기본 키가 없어 다운로드합니다.\n");
+            printConsole("저장된 기본 키가 없어 APK 내장 키를 준비합니다.\n");
         }
 
         if (!isConnectionActive(generation)) return false;
 
-        File temporaryKeyFile = new File(getFilesDir(), DEFAULT_KEY_DOWNLOAD_FILE_NAME);
+        File temporaryKeyFile = new File(getFilesDir(), DEFAULT_KEY_STAGING_FILE_NAME);
         if (temporaryKeyFile.exists() && !temporaryKeyFile.delete()) {
             throw new Exception("이전 기본 키 임시 파일을 정리할 수 없습니다.");
         }
 
         try {
-            printConsole("기본 키 다운로드 중...\n");
-            downloadFile(DEFAULT_KEY_URL, temporaryKeyFile);
+            printConsole("APK 내장 기본 키 준비 중...\n");
+            try (InputStream input = getAssets().open(DEFAULT_KEY_ASSET_NAME);
+                 FileOutputStream output = new FileOutputStream(temporaryKeyFile)) {
+                copy(input, output);
+            }
             if (!isConnectionActive(generation)) return false;
             validateKeyForSsh(temporaryKeyFile);
 
@@ -1235,9 +1238,9 @@ public class SshTerminalActivity extends AppCompatActivity {
                 throw new Exception("기존 기본 키를 교체할 수 없습니다.");
             }
             if (!temporaryKeyFile.renameTo(defaultKeyFile)) {
-                throw new Exception("다운로드한 기본 키를 저장할 수 없습니다.");
+                throw new Exception("APK 내장 기본 키를 저장할 수 없습니다.");
             }
-            printConsole("기본 키 다운로드 및 저장 완료.\n");
+            printConsole("APK 내장 기본 키 저장 완료.\n");
             return true;
         } finally {
             if (temporaryKeyFile.exists() && !temporaryKeyFile.delete()) {
@@ -1248,10 +1251,10 @@ public class SshTerminalActivity extends AppCompatActivity {
 
     private boolean clearDefaultKeyCache() {
         File defaultKeyFile = new File(getFilesDir(), DEFAULT_KEY_FILE_NAME);
-        File downloadFile = new File(getFilesDir(), DEFAULT_KEY_DOWNLOAD_FILE_NAME);
+        File stagingFile = new File(getFilesDir(), DEFAULT_KEY_STAGING_FILE_NAME);
         boolean defaultDeleted = !defaultKeyFile.exists() || defaultKeyFile.delete();
-        boolean downloadDeleted = !downloadFile.exists() || downloadFile.delete();
-        return defaultDeleted && downloadDeleted;
+        boolean stagingDeleted = !stagingFile.exists() || stagingFile.delete();
+        return defaultDeleted && stagingDeleted;
     }
 
     private void validateKeyForSsh(File keyFile) throws Exception {
@@ -1281,8 +1284,8 @@ public class SshTerminalActivity extends AppCompatActivity {
         if (keyContent.trim().startsWith("<")
                 || keyContent.toLowerCase(Locale.ROOT).contains("<!doctype html>")) {
             throw new Exception("""
-                    ❌ 서버에서 키 파일이 아닌 웹페이지(HTML)가 응답되었습니다.
-                    서버에 id_rsa.pem 파일이 올바르게 존재하는지 확인해주세요.""");
+                    ❌ 기본 키 대신 웹페이지(HTML) 내용이 발견되었습니다.
+                    APK에 id_rsa.pem 파일이 올바르게 포함되었는지 확인해주세요.""");
         }
 
         if (!keyContent.endsWith("\n")) {
@@ -1290,28 +1293,6 @@ public class SshTerminalActivity extends AppCompatActivity {
             try (FileOutputStream fos = new FileOutputStream(targetKeyFile)) {
                 fos.write(keyContent.getBytes(StandardCharsets.UTF_8));
             }
-        }
-    }
-
-    @SuppressWarnings("SameParameterValue")
-    private void downloadFile(String urlString, File destFile) throws Exception {
-        java.net.URL url = new java.net.URL(urlString);
-        java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
-        try {
-            conn.setConnectTimeout(3000);
-            conn.setReadTimeout(3000);
-
-            if (conn.getResponseCode() == java.net.HttpURLConnection.HTTP_OK) {
-                try (InputStream input = conn.getInputStream();
-                     FileOutputStream output = new FileOutputStream(destFile)) {
-                    copy(input, output);
-                }
-            } else {
-                throw new Exception("서버에서 기본 키를 다운로드할 수 없습니다. (HTTP "
-                        + conn.getResponseCode() + ")");
-            }
-        } finally {
-            conn.disconnect();
         }
     }
 
