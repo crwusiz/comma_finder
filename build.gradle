@@ -2,8 +2,8 @@ plugins {
     id 'com.android.application'
 }
 
-def appVersionCode = 58
-def appVersionName = "1.47"
+def appVersionCode = 59
+def appVersionName = "1.48"
 
 // Package app/id_rsa.pem into the APK at build time. Override with
 // -PembeddedSshKeyFile=<path> when a different key file is needed.

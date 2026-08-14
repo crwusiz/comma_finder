@@ -7,7 +7,10 @@ import android.content.Intent;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
+import android.graphics.drawable.ClipDrawable;
+import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.LayerDrawable;
 import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.NetworkCapabilities;
@@ -19,7 +22,9 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.View;
+import android.view.Gravity;
 import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
@@ -32,8 +37,8 @@ import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
-import androidx.core.graphics.BlendModeColorFilterCompat;
-import androidx.core.graphics.BlendModeCompat;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -56,6 +61,17 @@ public class MainActivity extends AppCompatActivity {
 
     private static final int SOCKET_TIMEOUT_MS = 800;
     private static final int THREAD_POOL = 50;
+
+    private static final String COLOR_BG = "#0B0E0D";
+    private static final String COLOR_SURFACE = "#141817";
+    private static final String COLOR_SURFACE_RAISED = "#191E1C";
+    private static final String COLOR_BORDER = "#29312E";
+    private static final String COLOR_PRIMARY = "#69E59D";
+    private static final String COLOR_PRIMARY_DARK = "#123222";
+    private static final String COLOR_TEXT = "#F2F6F4";
+    private static final String COLOR_TEXT_SECONDARY = "#9CA8A3";
+    private static final String COLOR_INFO = "#79C7FF";
+    private static final String COLOR_ERROR = "#FF806E";
 
     private TextView tvStatus, tvFound, tvLog;
     private ProgressBar progressBar;
@@ -141,6 +157,7 @@ public class MainActivity extends AppCompatActivity {
         if (savedStatus != null) {
             tvStatus.setText(savedStatus);
             tvStatus.setTextColor(savedStatusColor);
+            restoreStatusAppearance(savedStatusColor);
             progressBar.setMax(savedProgressMax);
             progressBar.setProgress(savedProgress);
         }
@@ -153,35 +170,74 @@ public class MainActivity extends AppCompatActivity {
 
     private void buildUI() {
         FrameLayout root = new FrameLayout(this);
-        root.setBackgroundColor(Color.parseColor("#0A0A0A"));
+        root.setBackgroundColor(Color.parseColor(COLOR_BG));
 
         ScrollView scroll = new ScrollView(this);
-        scroll.setPadding(0, 0, 0, dp(30));
+        scroll.setFillViewport(true);
+        scroll.setPadding(0, 0, 0, dp(20));
         scroll.setClipToPadding(false);
 
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
-        content.setPadding(dp(20), dp(28), dp(20), dp(8));
+        content.setPadding(dp(20), dp(18), dp(20), dp(28));
 
-        TextView title = makeText("◉  COMMA FINDER  ◉", 24, "#00E676", true);
-        title.setLetterSpacing(0.15f);
-        title.setGravity(android.view.Gravity.CENTER);
-        content.addView(title);
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(LinearLayout.HORIZONTAL);
+        header.setGravity(Gravity.CENTER_VERTICAL);
 
-        TextView sub = makeText("포트 자동 탐색", 13, "#AAAAAA", false);
-        sub.setPadding(0, dp(4), 0, dp(24));
-        sub.setGravity(android.view.Gravity.CENTER);
-        content.addView(sub);
+        ImageView logo = new ImageView(this);
+        logo.setImageResource(R.drawable.ic_comma_logo);
+        logo.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+        logo.setPadding(dp(10), dp(10), dp(10), dp(10));
+        logo.setContentDescription("네트워크 새로고침");
+        logo.setBackground(roundedBackground(COLOR_PRIMARY_DARK, null, 0, 15));
+        logo.setLayoutParams(new LinearLayout.LayoutParams(dp(56), dp(56)));
+        logo.setClickable(true);
+        logo.setFocusable(true);
+        ViewCompat.setTooltipText(logo, "네트워크 새로고침");
+        logo.setOnClickListener(v -> {
+            v.animate().rotationBy(360f).setDuration(420L).start();
+            refreshNetwork();
+        });
+        header.addView(logo);
+
+        LinearLayout heading = new LinearLayout(this);
+        heading.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams headingParams = new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+        headingParams.setMargins(dp(12), 0, dp(8), 0);
+        heading.setLayoutParams(headingParams);
+
+        TextView title = makeText("Comma Finder", 22, COLOR_TEXT, true);
+        title.setLetterSpacing(-0.01f);
+        heading.addView(title);
+
+        TextView sub = makeText("네트워크에서 comma 기기를 찾아보세요", 12, COLOR_TEXT_SECONDARY, false);
+        sub.setPadding(0, dp(3), 0, 0);
+        heading.addView(sub);
+        header.addView(heading);
+
+        TextView tvVersion = makePill(
+                String.format(Locale.getDefault(), "v%s", getCurrentVersionName()));
+        tvVersion.setTextSize(13f);
+        tvVersion.setPadding(dp(12), dp(8), dp(12), dp(8));
+        btnUpdate = tvVersion;
+        btnUpdate.setEnabled(false);
+        header.addView(tvVersion);
+
+        content.addView(header);
+        content.addView(vSpace(24));
 
         LinearLayout ipCard = makeCard();
-        ipCard.addView(makeLabel("내 기기 IP"));
+        LinearLayout ipHeader = makeCardHeader("현재 네트워크", "자동 감지");
+        ipCard.addView(ipHeader);
 
         ipListContainer = new LinearLayout(this);
         ipListContainer.setOrientation(LinearLayout.VERTICAL);
         ipListContainer.setLayoutParams(new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
 
-        TextView tvLoading = makeText("IP 감지 중...", 16, "#4FC3F7", true);
+        TextView tvLoading = makeText("IP 주소를 확인하는 중…", 15, COLOR_INFO, true);
         ipListContainer.addView(tvLoading);
 
         ipCard.addView(ipListContainer);
@@ -189,25 +245,45 @@ public class MainActivity extends AppCompatActivity {
         content.addView(vSpace(15));
 
         LinearLayout statusCard = makeCard();
-        tvStatus = makeText("대기", 15, "#DDDDDD", true);
-        tvFound  = makeText("", 22, "#00E676", true);
-        tvFound.setPadding(0, dp(6), 0, 0);
+        LinearLayout statusHeader = new LinearLayout(this);
+        statusHeader.setOrientation(LinearLayout.HORIZONTAL);
+        statusHeader.setGravity(Gravity.CENTER_VERTICAL);
+        TextView statusLabel = makeLabel("기기 검색");
+        statusLabel.setLayoutParams(new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        statusHeader.addView(statusLabel);
+
+        tvStatus = makePill("대기 중");
+        statusHeader.addView(tvStatus);
+        statusCard.addView(statusHeader);
+
+        TextView statusGuide = makeText(
+                "연결 방식을 선택하면 현재 네트워크를 검색합니다.",
+                13, COLOR_TEXT_SECONDARY, false);
+        statusGuide.setPadding(0, dp(12), 0, dp(12));
+        statusCard.addView(statusGuide);
+
+        tvFound  = makeText("", 18, COLOR_PRIMARY, true);
+        tvFound.setGravity(Gravity.CENTER);
+        tvFound.setPadding(dp(12), dp(11), dp(12), dp(11));
+        tvFound.setBackground(roundedBackground(COLOR_PRIMARY_DARK, null, 0, 10));
         tvFound.setVisibility(View.GONE);
+
         progressBar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
         progressBar.setMax(254);
         progressBar.setProgress(0);
-        progressBar.setPadding(0, dp(10), 0, dp(4));
-        progressBar.getProgressDrawable().setColorFilter(
-                BlendModeColorFilterCompat.createBlendModeColorFilterCompat(
-                        Color.parseColor("#00E676"), BlendModeCompat.SRC_IN));
+        progressBar.setProgressDrawable(makeProgressDrawable());
+        progressBar.setLayoutParams(new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(6)));
 
-        statusCard.addView(makeLabel("스캔 상태"));
-        statusCard.addView(tvStatus);
         statusCard.addView(progressBar);
+        statusCard.addView(vSpace(12));
         statusCard.addView(tvFound);
         content.addView(statusCard);
 
-        content.addView(vSpace(15));
+        content.addView(vSpace(22));
+        content.addView(makeSectionTitle());
+        content.addView(vSpace(10));
 
         LinearLayout gridRow1 = new LinearLayout(this);
         gridRow1.setOrientation(LinearLayout.HORIZONTAL);
@@ -215,84 +291,59 @@ public class MainActivity extends AppCompatActivity {
         gridRow1.setLayoutParams(new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
 
-        btnScan7000 = makeButton("스캔 시작\n(포트:7000)", "#00E676", "#000000");
-        btnScan7000.setLayoutParams(new LinearLayout.LayoutParams(0, dp(60), 1.0f));
+        btnScan7000 = makeButton("웹으로 연결\n포트 7000 검색", COLOR_PRIMARY, "#0A1C11");
+        btnScan7000.setLayoutParams(new LinearLayout.LayoutParams(0, dp(76), 1.0f));
         btnScan7000.setOnClickListener(v -> { if (scanning) stopScan(); else startScan(7000); });
         gridRow1.addView(btnScan7000);
 
         gridRow1.addView(hSpace(10));
 
-        btnScan22 = makeButton("스캔 시작\n(포트:22)", "#00E676", "#000000");
-        btnScan22.setLayoutParams(new LinearLayout.LayoutParams(0, dp(60), 1.0f));
+        btnScan22 = makeButton("SSH로 연결\n포트 22 검색", COLOR_SURFACE_RAISED, COLOR_TEXT);
+        setButtonColors(btnScan22, COLOR_SURFACE_RAISED, COLOR_TEXT, COLOR_BORDER);
+        btnScan22.setLayoutParams(new LinearLayout.LayoutParams(0, dp(76), 1.0f));
         btnScan22.setOnClickListener(v -> { if (scanning) stopScan(); else startScan(22); });
         gridRow1.addView(btnScan22);
 
         content.addView(gridRow1);
-        content.addView(vSpace(10));
-
-        LinearLayout gridRow2 = new LinearLayout(this);
-        gridRow2.setOrientation(LinearLayout.HORIZONTAL);
-        gridRow2.setBaselineAligned(false);
-        gridRow2.setLayoutParams(new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-
-        TextView btnRefresh = makeButton("새로고침", "#111111", "#00E676");
-        ((GradientDrawable) btnRefresh.getBackground()).setStroke(dp(1), Color.parseColor("#00E676"));
-        btnRefresh.setLayoutParams(new LinearLayout.LayoutParams(0, dp(60), 1.0f));
-        btnRefresh.setOnClickListener(v -> {
-            tvLog.setText("");
-            ipListContainer.removeAllViews();
-            ipListContainer.addView(makeText("IP 감지 중...", 16, "#4FC3F7", true));
-            lastDetectedIpString = "";
-            detectIP();
-        });
-        gridRow2.addView(btnRefresh);
-
-        gridRow2.addView(hSpace(10));
-
-        btnUpdate = makeButton("업데이트\n확인 중...", "#333333", "#888888");
-        ((GradientDrawable) btnUpdate.getBackground()).setStroke(0, Color.TRANSPARENT);
-        btnUpdate.setLayoutParams(new LinearLayout.LayoutParams(0, dp(60), 1.0f));
-        btnUpdate.setEnabled(false);
-        gridRow2.addView(btnUpdate);
-
-        content.addView(gridRow2);
-        content.addView(vSpace(15));
+        content.addView(vSpace(22));
 
         LinearLayout logCard = makeCard();
+        logCard.addView(makeCardHeader("활동 로그", "실시간"));
         logScroll = new ScrollView(this);
-        logScroll.setBackgroundColor(Color.parseColor("#000000"));
+        logScroll.setBackground(roundedBackground("#0A0D0C", null, 0, 10));
 
         logScroll.setLayoutParams(new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, dp(160)));
-        logScroll.setPadding(dp(10), dp(8), dp(10), dp(8));
+        logScroll.setPadding(dp(12), dp(10), dp(12), dp(10));
         tvLog = new TextView(this);
-        tvLog.setTextColor(Color.parseColor("#FFFFFF"));
+        tvLog.setTextColor(Color.parseColor("#C9D2CE"));
         tvLog.setTextSize(11f);
         tvLog.setTypeface(android.graphics.Typeface.MONOSPACE);
         tvLog.setLineSpacing(dp(2), 1.0f);
         logScroll.addView(tvLog);
-        logCard.addView(makeLabel("로그"));
         logCard.addView(logScroll);
         content.addView(logCard);
 
         scroll.addView(content);
         root.addView(scroll);
 
-        TextView tvVersion = new TextView(this);
-        tvVersion.setText(String.format(Locale.getDefault(), "v%s", getCurrentVersionName()));
-        tvVersion.setTextColor(Color.parseColor("#666666"));
-        tvVersion.setTextSize(12f);
-        tvVersion.setTypeface(android.graphics.Typeface.MONOSPACE);
-
-        FrameLayout.LayoutParams vParams = new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT);
-        vParams.gravity = android.view.Gravity.BOTTOM | android.view.Gravity.END;
-        vParams.setMargins(0, 0, dp(16), dp(16));
-        tvVersion.setLayoutParams(vParams);
-        root.addView(tvVersion);
+        ViewCompat.setOnApplyWindowInsetsListener(root, (view, insets) -> {
+            int top = insets.getInsets(WindowInsetsCompat.Type.systemBars()).top;
+            int bottom = insets.getInsets(WindowInsetsCompat.Type.systemBars()).bottom;
+            view.setPadding(0, top, 0, bottom);
+            return insets;
+        });
 
         setContentView(root);
+    }
+
+    private void refreshNetwork() {
+        tvLog.setText("");
+        ipListContainer.removeAllViews();
+        ipListContainer.addView(makeText(
+                "IP 주소를 확인하는 중…", 15, COLOR_INFO, true));
+        lastDetectedIpString = "";
+        detectIP();
     }
 
     private void checkForUpdates() {
@@ -336,35 +387,46 @@ public class MainActivity extends AppCompatActivity {
 
                     postToMain(() -> {
                         if (updateAvailable) {
-                            btnUpdate.setText(String.format(Locale.getDefault(), "업데이트\n가능 (v%s)", remoteVersionName));
-                            GradientDrawable bg = (GradientDrawable) btnUpdate.getBackground();
-                            bg.setColor(Color.parseColor("#00E676"));
-                            btnUpdate.setTextColor(Color.parseColor("#000000"));
+                            btnUpdate.setText(String.format(
+                                    Locale.getDefault(), "v%s 업데이트", remoteVersionName));
+                            btnUpdate.setTextColor(Color.parseColor(COLOR_PRIMARY));
+                            btnUpdate.setBackground(roundedBackground(
+                                    COLOR_PRIMARY_DARK, COLOR_PRIMARY, 1, 20));
+                            btnUpdate.setContentDescription(String.format(
+                                    Locale.getDefault(), "v%s 업데이트 가능. 탭하여 다운로드", remoteVersionName));
                             btnUpdate.setEnabled(true);
+                            btnUpdate.setFocusable(true);
                             btnUpdate.setOnClickListener(v -> {
                                 Intent i = new Intent(Intent.ACTION_VIEW, Uri.parse(finalApkUrl));
                                 startActivity(i);
                             });
                         } else {
-                            btnUpdate.setText("최신 버전");
-                            GradientDrawable bg = (GradientDrawable) btnUpdate.getBackground();
-                            bg.setColor(Color.parseColor("#333333"));
-                            btnUpdate.setTextColor(Color.parseColor("#888888"));
-                            btnUpdate.setEnabled(false);
-                            btnUpdate.setOnClickListener(null);
+                            showCurrentVersionBadge();
                         }
                     });
                 } else {
-                    postToMain(() -> btnUpdate.setText("업데이트\n확인 실패"));
+                    postToMain(this::showCurrentVersionBadge);
                 }
             } catch (Exception e) {
                 if (!Thread.currentThread().isInterrupted()) {
-                    postToMain(() -> btnUpdate.setText("업데이트\n확인 실패"));
+                    postToMain(this::showCurrentVersionBadge);
                 }
             } finally {
                 if (connection != null) connection.disconnect();
             }
         });
+    }
+
+    private void showCurrentVersionBadge() {
+        btnUpdate.setText(String.format(Locale.getDefault(), "v%s", getCurrentVersionName()));
+        btnUpdate.setTextColor(Color.parseColor(COLOR_TEXT_SECONDARY));
+        btnUpdate.setBackground(roundedBackground(COLOR_SURFACE_RAISED, null, 0, 20));
+        btnUpdate.setContentDescription(String.format(
+                Locale.getDefault(), "현재 버전 %s", getCurrentVersionName()));
+        btnUpdate.setOnClickListener(null);
+        btnUpdate.setClickable(false);
+        btnUpdate.setFocusable(false);
+        btnUpdate.setEnabled(false);
     }
 
     private void detectIP() {
@@ -404,20 +466,20 @@ public class MainActivity extends AppCompatActivity {
                         TableRow row = new TableRow(MainActivity.this);
 
                         TextView tvLabel = new TextView(MainActivity.this);
-                        tvLabel.setText(String.format("[%s]", label));
-                        tvLabel.setTextColor(Color.parseColor("#4FC3F7"));
-                        tvLabel.setTextSize(14f);
+                        tvLabel.setText(label);
+                        tvLabel.setTextColor(Color.parseColor(COLOR_TEXT_SECONDARY));
+                        tvLabel.setTextSize(12f);
                         tvLabel.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-                        tvLabel.setPadding(0, 0, dp(12), dp(4));
+                        tvLabel.setPadding(0, dp(2), dp(14), dp(6));
                         tvLabel.setMaxLines(1);
                         tvLabel.setEllipsize(android.text.TextUtils.TruncateAt.END);
 
                         TextView tvIpVal = new TextView(MainActivity.this);
                         tvIpVal.setText(ip);
-                        tvIpVal.setTextColor(Color.parseColor("#4FC3F7"));
+                        tvIpVal.setTextColor(Color.parseColor(COLOR_INFO));
                         tvIpVal.setTextSize(15f);
                         tvIpVal.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-                        tvIpVal.setPadding(0, 0, 0, dp(4));
+                        tvIpVal.setPadding(0, 0, 0, dp(6));
 
                         row.addView(tvLabel);
                         row.addView(tvIpVal);
@@ -433,7 +495,7 @@ public class MainActivity extends AppCompatActivity {
                         if (label != null && label.startsWith("VPN")) appendLog(" └ 이 대역은 스캔에서 제외됩니다.", "#555555");
                     }
                 } else {
-                    ipListContainer.addView(makeText("IP 감지 실패", 16, "#FF6B35", true));
+                    ipListContainer.addView(makeText("IP 감지 실패", 15, COLOR_ERROR, true));
                     appendLog("IP 감지 실패 — Wi-Fi 연결 확인", "#FF6B35");
                 }
             });
@@ -507,8 +569,7 @@ public class MainActivity extends AppCompatActivity {
         progressBar.setMax(total);
         progressBar.setProgress(0);
 
-        tvStatus.setTextColor(Color.parseColor("#4FC3F7"));
-        tvStatus.setText("● 스캔 중...");
+        setStatus("검색 중 · " + targetPort, COLOR_INFO, "#142633");
         tvLog.setText("");
 
         for (String s : subnets)
@@ -580,29 +641,33 @@ public class MainActivity extends AppCompatActivity {
 
     private void applyScanningButtons(int port) {
         if (port == 7000) {
-            btnScan7000.setText("중  단");
+            btnScan7000.setText("검색 중단\n포트 7000 검색 중");
+            setButtonColors(btnScan7000, "#45221F", COLOR_ERROR, COLOR_ERROR);
             btnScan22.setEnabled(false);
-            btnScan22.setTextColor(Color.parseColor("#555555"));
+            btnScan22.setAlpha(0.42f);
         } else {
-            btnScan22.setText("중  단");
+            btnScan22.setText("검색 중단\n포트 22 검색 중");
+            setButtonColors(btnScan22, "#45221F", COLOR_ERROR, COLOR_ERROR);
             btnScan7000.setEnabled(false);
-            btnScan7000.setTextColor(Color.parseColor("#555555"));
+            btnScan7000.setAlpha(0.42f);
         }
     }
 
     private void resetScanButtons() {
-        btnScan7000.setText("스캔 시작\n(포트:7000)");
+        btnScan7000.setText("웹으로 연결\n포트 7000 검색");
         btnScan7000.setEnabled(true);
-        btnScan7000.setTextColor(Color.parseColor("#000000"));
+        btnScan7000.setAlpha(1f);
+        setButtonColors(btnScan7000, COLOR_PRIMARY, "#0A1C11", null);
 
-        btnScan22.setText("스캔 시작\n(포트:22)");
+        btnScan22.setText("SSH로 연결\n포트 22 검색");
         btnScan22.setEnabled(true);
-        btnScan22.setTextColor(Color.parseColor("#000000"));
+        btnScan22.setAlpha(1f);
+        setButtonColors(btnScan22, COLOR_SURFACE_RAISED, COLOR_TEXT, COLOR_BORDER);
     }
 
     private void onFound(String ip) {
         foundIp = ip;
-        tvStatus.setTextColor(Color.parseColor("#00E676")); tvStatus.setText("● 발견!");
+        setStatus("발견 완료", COLOR_PRIMARY, COLOR_PRIMARY_DARK);
         tvFound.setText(String.format(Locale.getDefault(), "%s:%d", ip, currentPort));
         tvFound.setVisibility(View.VISIBLE);
         progressBar.setProgress(progressBar.getMax());
@@ -622,14 +687,14 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void onNotFound() {
-        tvStatus.setTextColor(Color.parseColor("#FF6B35")); tvStatus.setText("● 미발견");
+        setStatus("검색 결과 없음", COLOR_ERROR, "#3B201D");
         progressBar.setProgress(progressBar.getMax());
         resetScanButtons();
         appendLog(String.format(Locale.getDefault(), "포트 %d 열린 기기 없음", currentPort), "#FF6B35");
     }
 
     private void onStopped() {
-        tvStatus.setTextColor(Color.parseColor("#DDDDDD")); tvStatus.setText("중단됨");
+        setStatus("검색 중단됨", COLOR_TEXT_SECONDARY, COLOR_SURFACE_RAISED);
         resetScanButtons();
         appendLog("스캔 중단됨", "#DDDDDD");
     }
@@ -682,9 +747,7 @@ public class MainActivity extends AppCompatActivity {
                 packageInfo = getPackageManager().getPackageInfo(
                         getPackageName(), PackageManager.PackageInfoFlags.of(0));
             } else {
-                @SuppressWarnings("deprecation")
-                PackageInfo legacyPackageInfo = getPackageManager().getPackageInfo(getPackageName(), 0);
-                packageInfo = legacyPackageInfo;
+                packageInfo = getPackageManager().getPackageInfo(getPackageName(), 0);
             }
             return packageInfo.versionName != null ? packageInfo.versionName : "0";
         } catch (PackageManager.NameNotFoundException ignored) {
@@ -699,12 +762,9 @@ public class MainActivity extends AppCompatActivity {
     private LinearLayout makeCard() {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
-        card.setPadding(dp(16), dp(14), dp(16), dp(14));
-        GradientDrawable bg = new GradientDrawable();
-        bg.setColor(Color.parseColor("#111111"));
-        bg.setStroke(dp(1), Color.parseColor("#1E1E1E"));
-        bg.setCornerRadius(dp(14));
-        card.setBackground(bg);
+        card.setPadding(dp(16), dp(16), dp(16), dp(16));
+        card.setBackground(roundedBackground(COLOR_SURFACE, COLOR_BORDER, 1, 16));
+        card.setElevation(dp(1));
         card.setLayoutParams(new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         return card;
@@ -715,17 +775,53 @@ public class MainActivity extends AppCompatActivity {
         tv.setText(text);
         tv.setTextSize(sizeSp);
         tv.setTextColor(Color.parseColor(color));
-        tv.setTypeface(bold ? android.graphics.Typeface.DEFAULT_BOLD : android.graphics.Typeface.MONOSPACE);
+        tv.setTypeface(bold ? android.graphics.Typeface.DEFAULT_BOLD : android.graphics.Typeface.DEFAULT);
         tv.setLayoutParams(new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         return tv;
     }
 
     private TextView makeLabel(String text) {
-        TextView tv = makeText(text.toUpperCase(Locale.ROOT), 11, "#888888", true);
-        tv.setLetterSpacing(0.10f);
-        tv.setPadding(0, 0, 0, dp(8));
+        TextView tv = makeText(text, 13, COLOR_TEXT, true);
+        tv.setLetterSpacing(0.01f);
+        tv.setPadding(0, 0, 0, dp(10));
         return tv;
+    }
+
+    private TextView makeSectionTitle() {
+        TextView tv = makeText("연결 방식", 14, COLOR_TEXT, true);
+        tv.setLetterSpacing(0.01f);
+        return tv;
+    }
+
+    private LinearLayout makeCardHeader(String title, String badge) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(0, 0, 0, dp(12));
+
+        TextView label = makeLabel(title);
+        label.setPadding(0, 0, 0, 0);
+        label.setLayoutParams(new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        row.addView(label);
+        row.addView(makePill(badge));
+        return row;
+    }
+
+    private TextView makePill(String text) {
+        TextView pill = new TextView(this);
+        pill.setText(text);
+        pill.setTextColor(Color.parseColor(COLOR_TEXT_SECONDARY));
+        pill.setTextSize(11f);
+        pill.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        pill.setGravity(Gravity.CENTER);
+        pill.setIncludeFontPadding(false);
+        pill.setPadding(dp(10), dp(6), dp(10), dp(6));
+        pill.setBackground(roundedBackground(COLOR_SURFACE_RAISED, null, 0, 20));
+        pill.setLayoutParams(new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        return pill;
     }
 
     private TextView makeButton(String label, String bgColor, String textColor) {
@@ -734,24 +830,64 @@ public class MainActivity extends AppCompatActivity {
         btn.setTextColor(Color.parseColor(textColor));
         btn.setTextSize(14f);
         btn.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        btn.setLetterSpacing(0.05f);
+        btn.setLetterSpacing(0.01f);
 
         btn.setIncludeFontPadding(false);
-        btn.setPadding(0, dp(2), 0, dp(4));
-        btn.setLineSpacing(dp(2), 1.0f);
-        btn.setGravity(android.view.Gravity.CENTER);
+        btn.setPadding(dp(10), dp(4), dp(10), dp(5));
+        btn.setLineSpacing(dp(3), 1.0f);
+        btn.setGravity(Gravity.CENTER);
 
         btn.setClickable(true);
         btn.setFocusable(true);
-
-        GradientDrawable bg = new GradientDrawable();
-        bg.setColor(Color.parseColor(bgColor));
-        bg.setCornerRadius(dp(12));
-        btn.setBackground(bg);
+        btn.setBackground(roundedBackground(bgColor, null, 0, 13));
 
         btn.setLayoutParams(new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, dp(60)));
         return btn;
+    }
+
+    private void setButtonColors(TextView button, String background, String text, String stroke) {
+        button.setTextColor(Color.parseColor(text));
+        button.setBackground(roundedBackground(background, stroke, stroke == null ? 0 : 1, 13));
+    }
+
+    private void setStatus(String text, String textColor, String backgroundColor) {
+        tvStatus.setText(text);
+        tvStatus.setTextColor(Color.parseColor(textColor));
+        tvStatus.setBackground(roundedBackground(backgroundColor, null, 0, 20));
+    }
+
+    private void restoreStatusAppearance(int textColor) {
+        if (textColor == Color.parseColor(COLOR_PRIMARY)) {
+            tvStatus.setBackground(roundedBackground(COLOR_PRIMARY_DARK, null, 0, 20));
+        } else if (textColor == Color.parseColor(COLOR_INFO)) {
+            tvStatus.setBackground(roundedBackground("#142633", null, 0, 20));
+        } else if (textColor == Color.parseColor(COLOR_ERROR)) {
+            tvStatus.setBackground(roundedBackground("#3B201D", null, 0, 20));
+        } else {
+            tvStatus.setBackground(roundedBackground(COLOR_SURFACE_RAISED, null, 0, 20));
+        }
+    }
+
+    private Drawable makeProgressDrawable() {
+        GradientDrawable track = roundedBackground("#252B29", null, 0, 6);
+        GradientDrawable fill = roundedBackground(COLOR_PRIMARY, null, 0, 6);
+        ClipDrawable clippedFill = new ClipDrawable(fill, Gravity.START, ClipDrawable.HORIZONTAL);
+        LayerDrawable layers = new LayerDrawable(new Drawable[]{track, clippedFill});
+        layers.setId(0, android.R.id.background);
+        layers.setId(1, android.R.id.progress);
+        return layers;
+    }
+
+    private GradientDrawable roundedBackground(
+            String fillColor, String strokeColor, int strokeWidthDp, int radiusDp) {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(Color.parseColor(fillColor));
+        drawable.setCornerRadius(dp(radiusDp));
+        if (strokeColor != null && strokeWidthDp > 0) {
+            drawable.setStroke(dp(strokeWidthDp), Color.parseColor(strokeColor));
+        }
+        return drawable;
     }
 
     @SuppressWarnings("SameParameterValue")
