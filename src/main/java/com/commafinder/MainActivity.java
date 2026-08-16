@@ -282,8 +282,6 @@ public class MainActivity extends AppCompatActivity {
         content.addView(statusCard);
 
         content.addView(vSpace(22));
-        content.addView(makeSectionTitle());
-        content.addView(vSpace(10));
 
         LinearLayout gridRow1 = new LinearLayout(this);
         gridRow1.setOrientation(LinearLayout.HORIZONTAL);
@@ -296,10 +294,9 @@ public class MainActivity extends AppCompatActivity {
         btnScan7000.setOnClickListener(v -> { if (scanning) stopScan(); else startScan(7000); });
         gridRow1.addView(btnScan7000);
 
-        gridRow1.addView(hSpace(10));
+        gridRow1.addView(hSpace(22));
 
-        btnScan22 = makeButton("SSH로 연결\n포트 22 검색", COLOR_SURFACE_RAISED, COLOR_TEXT);
-        setButtonColors(btnScan22, COLOR_SURFACE_RAISED, COLOR_TEXT, COLOR_BORDER);
+        btnScan22 = makeButton("SSH로 연결\n포트 22 검색", COLOR_PRIMARY, "#0A1C11");
         btnScan22.setLayoutParams(new LinearLayout.LayoutParams(0, dp(76), 1.0f));
         btnScan22.setOnClickListener(v -> { if (scanning) stopScan(); else startScan(22); });
         gridRow1.addView(btnScan22);
@@ -560,7 +557,7 @@ public class MainActivity extends AppCompatActivity {
         if (targetPort == 7000) {
             appendLog("7000 포트가 개방된 comma 기기를 찾으면 웹페이지를 자동으로 오픈합니다", "#AAAAAA");
         } else {
-            appendLog("22 포트가 개방된 comma 기기를 찾으면 저장된 Private Key를 이용해 ssh 접속합니다", "#AAAAAA");
+            appendLog("22 포트가 개방된 comma 기기를 찾으면 Private Key를 이용해 SSH에 접속합니다", "#AAAAAA");
         }
 
         tvFound.setVisibility(View.GONE);
@@ -662,7 +659,7 @@ public class MainActivity extends AppCompatActivity {
         btnScan22.setText("SSH로 연결\n포트 22 검색");
         btnScan22.setEnabled(true);
         btnScan22.setAlpha(1f);
-        setButtonColors(btnScan22, COLOR_SURFACE_RAISED, COLOR_TEXT, COLOR_BORDER);
+        setButtonColors(btnScan22, COLOR_PRIMARY, "#0A1C11", null);
     }
 
     private void onFound(String ip) {
@@ -720,7 +717,6 @@ public class MainActivity extends AppCompatActivity {
             String ts = android.text.format.DateFormat.format("HH:mm:ss", new java.util.Date()).toString();
             android.text.SpannableStringBuilder sb = new android.text.SpannableStringBuilder(tvLog.getText());
 
-            // 기존 텍스트가 있을 경우에만 개행 추가
             if (!android.text.TextUtils.isEmpty(tvLog.getText())) {
                 sb.append("\n");
             }
@@ -785,12 +781,6 @@ public class MainActivity extends AppCompatActivity {
         TextView tv = makeText(text, 13, COLOR_TEXT, true);
         tv.setLetterSpacing(0.01f);
         tv.setPadding(0, 0, 0, dp(10));
-        return tv;
-    }
-
-    private TextView makeSectionTitle() {
-        TextView tv = makeText("연결 방식", 14, COLOR_TEXT, true);
-        tv.setLetterSpacing(0.01f);
         return tv;
     }
 
