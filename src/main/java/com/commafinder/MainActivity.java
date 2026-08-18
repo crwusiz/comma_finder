@@ -503,31 +503,38 @@ public class MainActivity extends AppCompatActivity {
     private String getWifiSsid() {
         try {
             WifiInfo info = null;
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                ConnectivityManager connectivityManager =
-                        (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
-                if (connectivityManager != null) {
-                    Network network = connectivityManager.getActiveNetwork();
-                    if (network != null) {
-                        NetworkCapabilities capabilities =
-                                connectivityManager.getNetworkCapabilities(network);
-                        if (capabilities != null
-                                && capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
-                                && capabilities.getTransportInfo() instanceof WifiInfo) {
-                            info = (WifiInfo) capabilities.getTransportInfo();
-                        }
+
+            ConnectivityManager cm = (ConnectivityManager) getApplicationContext()
+                    .getSystemService(Context.CONNECTIVITY_SERVICE);
+            if (cm != null) {
+                Network network = cm.getActiveNetwork();
+                if (network != null) {
+                    NetworkCapabilities capabilities = cm.getNetworkCapabilities(network);
+                    if (capabilities != null
+                            && capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
+                            && capabilities.getTransportInfo() instanceof WifiInfo) {
+                        info = (WifiInfo) capabilities.getTransportInfo();
                     }
                 }
-            } else {
-                WifiManager wifiManager = (WifiManager) getApplicationContext()
+            }
+
+            if (info == null || info.getSSID() == null || WifiManager.UNKNOWN_SSID.equals(info.getSSID())) {
+                WifiManager wm = (WifiManager) getApplicationContext()
                         .getSystemService(Context.WIFI_SERVICE);
-                @SuppressWarnings("deprecation")
-                WifiInfo legacyInfo = wifiManager != null ? wifiManager.getConnectionInfo() : null;
-                info = legacyInfo;
+                if (wm != null) {
+                    @SuppressWarnings("deprecation")
+                    WifiInfo legacyInfo = wm.getConnectionInfo();
+                    if (legacyInfo != null) {
+                        info = legacyInfo;
+                    }
+                }
             }
 
             if (info != null && info.getSSID() != null) {
-                String ssid = info.getSSID().replace("\"", "");
+                String ssid = info.getSSID().trim();
+                if (ssid.startsWith("\"") && ssid.endsWith("\"") && ssid.length() >= 2) {
+                    ssid = ssid.substring(1, ssid.length() - 1);
+                }
                 if (!ssid.isEmpty() && !WifiManager.UNKNOWN_SSID.equals(ssid)) {
                     return " - " + ssid;
                 }
