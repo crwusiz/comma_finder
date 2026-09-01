@@ -1,9 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<testsuite name="com.commafinder.NetworkUtilsTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-01T09:54:22.646Z" hostname="이종문" time="0.008">
-  <properties/>
-  <testcase name="detectsPrivateIpv4Ranges" classname="com.commafinder.NetworkUtilsTest" time="0.005"/>
-  <testcase name="extractsOnlyValidSubnets" classname="com.commafinder.NetworkUtilsTest" time="0.001"/>
-  <testcase name="vpnAndHotspotLabelsTakePriority" classname="com.commafinder.NetworkUtilsTest" time="0.0"/>
-  <system-out><![CDATA[]]></system-out>
-  <system-err><![CDATA[]]></system-err>
-</testsuite>
