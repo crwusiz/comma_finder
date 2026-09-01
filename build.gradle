@@ -2,8 +2,19 @@ plugins {
     id 'com.android.application'
 }
 
-def appVersionCode = 64
-def appVersionName = "1.53"
+def appVersionCode = 65
+def appVersionName = "1.54"
+
+// Release signing is supplied at publish time so secrets never live in source control.
+def releaseKeystorePath = providers.environmentVariable("CF_KEYSTORE_PATH")
+        .orElse("C:/app/build_apk/keystore").get()
+def releaseStorePassword = providers.environmentVariable("CF_STORE_PASSWORD").orNull
+def releaseKeyAlias = providers.environmentVariable("CF_KEY_ALIAS").orNull
+def releaseKeyPassword = providers.environmentVariable("CF_KEY_PASSWORD").orNull
+def releaseSigningConfigured = rootProject.file(releaseKeystorePath).isFile()
+        && releaseStorePassword
+        && releaseKeyAlias
+        && releaseKeyPassword
 
 // Package app/id_rsa.pem into the APK at build time. Override with
 // -PembeddedSshKeyFile=<path> when a different key file is needed.
@@ -32,6 +43,17 @@ android {
 
     compileSdk = 36
 
+    signingConfigs {
+        if (releaseSigningConfigured) {
+            release {
+                storeFile = rootProject.file(releaseKeystorePath)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
+    }
+
     defaultConfig {
         applicationId = "com.commafinder"
         minSdk = 29
@@ -45,6 +67,9 @@ android {
         release {
             minifyEnabled = false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            if (releaseSigningConfigured) {
+                signingConfig = signingConfigs.release
+            }
         }
     }
 
@@ -61,6 +86,12 @@ android {
 
 tasks.named("preBuild").configure {
     dependsOn("prepareEmbeddedSshKey")
+}
+
+tasks.register("printAppVersionName") {
+    doLast {
+        println(appVersionName)
+    }
 }
 
 androidComponents {
