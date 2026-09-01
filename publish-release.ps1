@@ -12,6 +12,11 @@ $gradleRoot = (Resolve-Path (Join-Path $repoDir "..")).Path
 $gradlew = Join-Path $gradleRoot "gradlew.bat"
 $defaultKeystore = "C:\app\build_apk\keystore"
 $savedEnvironment = @{}
+$localConfig = Join-Path $repoDir "publish-release.local.ps1"
+
+if (Test-Path -LiteralPath $localConfig -PathType Leaf) {
+    . $localConfig
+}
 
 function Assert-LastExitCode([string]$message) {
     if ($LASTEXITCODE -ne 0) {
@@ -162,7 +167,7 @@ try {
         $releaseArguments = @(
             "release", "create", $tag, $apkPath,
             "--verify-tag",
-            "--title", "Comma Finder $tag"
+            "--title", $tag
         )
         if ($NotesFile) {
             $resolvedNotes = (Resolve-Path -LiteralPath $NotesFile).Path

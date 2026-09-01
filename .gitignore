@@ -4,6 +4,7 @@
 /release/
 *.apk
 *.aab
+/publish-release.local.ps1
 
 # Android Studio / IntelliJ IDEA
 .idea/
