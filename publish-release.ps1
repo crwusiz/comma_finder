@@ -19,6 +19,17 @@ function Assert-LastExitCode([string]$message) {
     }
 }
 
+function Test-NativeSuccess([scriptblock]$command) {
+    $previousPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = "Continue"
+        & $command *> $null
+        return $LASTEXITCODE -eq 0
+    } finally {
+        $ErrorActionPreference = $previousPreference
+    }
+}
+
 function Set-TemporaryEnvironment([string]$name, [string]$value) {
     if (-not $savedEnvironment.ContainsKey($name)) {
         $savedEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, "Process")
@@ -43,8 +54,7 @@ try {
         throw "GitHub CLI is not installed. Run: winget install --id GitHub.cli -e"
     }
 
-    & $gh auth status *> $null
-    if ($LASTEXITCODE -ne 0) {
+    if (-not (Test-NativeSuccess { & $gh auth status })) {
         throw "GitHub login is required. Run 'gh auth login' and retry."
     }
 
@@ -64,8 +74,11 @@ try {
 
     $headCommit = (git rev-parse HEAD).Trim()
     Assert-LastExitCode "Unable to read the current Git commit."
-    $localTagCommit = git rev-list -n 1 $tag 2>$null
-    if ($LASTEXITCODE -eq 0 -and $localTagCommit) {
+    $matchingLocalTags = @(git tag --list $tag)
+    Assert-LastExitCode "Unable to inspect local Git tags."
+    if ($matchingLocalTags.Count -gt 0) {
+        $localTagCommit = (git rev-list -n 1 "refs/tags/$tag").Trim()
+        Assert-LastExitCode "Unable to inspect local Git tag '$tag'."
         if ($localTagCommit.Trim() -ne $headCommit) {
             throw "Tag '$tag' already points to another commit. Increase appVersionName first."
         }
@@ -142,8 +155,7 @@ try {
         Assert-LastExitCode "Unable to push Git tag '$tag'."
     }
 
-    & $gh release view $tag *> $null
-    if ($LASTEXITCODE -eq 0) {
+    if (Test-NativeSuccess { & $gh release view $tag }) {
         & $gh release upload $tag $apkPath --clobber
         Assert-LastExitCode "Unable to upload APK to existing GitHub Release '$tag'."
     } else {
