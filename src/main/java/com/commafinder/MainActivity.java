@@ -291,7 +291,7 @@ public class MainActivity extends AppCompatActivity {
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
 
         btnScan7000 = makeButton("웹으로 연결\n포트 7000 검색", COLOR_PRIMARY, "#0A1C11");
-        setButtonGradient(btnScan7000, "#5AF0A3", "#20AA68", "#8AFCBE", "#FFFFFF");
+        setButtonGradient(btnScan7000, "#5AF0A3", "#20AA68", "#8AFCBE", "#071A10");
         btnScan7000.setLayoutParams(new LinearLayout.LayoutParams(0, dp(76), 1.0f));
         btnScan7000.setOnClickListener(v -> { if (scanning) stopScan(); else startScan(7000); });
         gridRow1.addView(btnScan7000);
@@ -299,7 +299,7 @@ public class MainActivity extends AppCompatActivity {
         gridRow1.addView(hSpace(22));
 
         btnScan22 = makeButton("SSH로 연결\n포트 22 검색", COLOR_PRIMARY, "#0A1C11");
-        setButtonGradient(btnScan22, "#68D8FF", "#466BE8", "#9BE7FF", "#FFFFFF");
+        setButtonGradient(btnScan22, "#68D8FF", "#466BE8", "#9BE7FF", "#071525");
         btnScan22.setLayoutParams(new LinearLayout.LayoutParams(0, dp(76), 1.0f));
         btnScan22.setOnClickListener(v -> { if (scanning) stopScan(); else startScan(22); });
         gridRow1.addView(btnScan22);
@@ -371,10 +371,9 @@ public class MainActivity extends AppCompatActivity {
         c4Promo.addView(promoTitle);
 
         TextView c4ReferralButton = makeText(
-                "구매하기  ↗", 14, "#FFFFFF", true);
+                "구매하기  ↗", 14, "#281006", true);
         c4ReferralButton.setGravity(Gravity.CENTER);
         c4ReferralButton.setLetterSpacing(0.02f);
-        applyOutlinedButtonText(c4ReferralButton);
         c4ReferralButton.setPadding(dp(8), 0, dp(8), 0);
         c4ReferralButton.setBackground(promoButtonBackground());
         c4ReferralButton.setElevation(dp(2));
@@ -726,12 +725,12 @@ public class MainActivity extends AppCompatActivity {
         btnScan7000.setText("웹으로 연결\n포트 7000 검색");
         btnScan7000.setEnabled(true);
         btnScan7000.setAlpha(1f);
-        setButtonGradient(btnScan7000, "#5AF0A3", "#20AA68", "#8AFCBE", "#FFFFFF");
+        setButtonGradient(btnScan7000, "#5AF0A3", "#20AA68", "#8AFCBE", "#071A10");
 
         btnScan22.setText("SSH로 연결\n포트 22 검색");
         btnScan22.setEnabled(true);
         btnScan22.setAlpha(1f);
-        setButtonGradient(btnScan22, "#68D8FF", "#466BE8", "#9BE7FF", "#FFFFFF");
+        setButtonGradient(btnScan22, "#68D8FF", "#466BE8", "#9BE7FF", "#071525");
     }
 
     private void onFound(String ip) {
@@ -917,14 +916,9 @@ public class MainActivity extends AppCompatActivity {
     private void setButtonGradient(
             TextView button, String startColor, String endColor, String strokeColor, String textColor) {
         button.setTextColor(Color.parseColor(textColor));
-        applyOutlinedButtonText(button);
+        button.setShadowLayer(0, 0, 0, Color.TRANSPARENT);
         button.setBackground(gradientButtonBackground(startColor, endColor, strokeColor, 13));
         button.setElevation(dp(2));
-    }
-
-    private void applyOutlinedButtonText(TextView button) {
-        button.setLayerType(View.LAYER_TYPE_SOFTWARE, null);
-        button.setShadowLayer(dp(1), 0, 0, Color.BLACK);
     }
 
     private void setStatus(String text, String textColor, String backgroundColor) {
