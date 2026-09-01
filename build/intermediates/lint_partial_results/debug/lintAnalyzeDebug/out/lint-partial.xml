@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<incidents format="6" by="lint 8.13.2" type="partial_results">
+    <map id="UnsafeImplicitIntentLaunch">
+            <map id="actionsSent">
+                    <map id="android.intent.action.VIEW (used to start an activity)">
+                        <location id="0"
+                            file="${:app*debug*MAIN*sourceProvider*0*javaDir*0}/com/commafinder/CommaWidget.java"
+                            line="100"
+                            column="39"
+                            startOffset="3856"
+                            endLine="100"
+                            endColumn="74"
+                            endOffset="3891"/>
+                        <location id="1"
+                            file="${:app*debug*MAIN*sourceProvider*0*javaDir*0}/com/commafinder/MainActivity.java"
+                            line="397"
+                            column="44"
+                            startOffset="16721"
+                            endLine="397"
+                            endColumn="98"
+                            endOffset="16775"/>
+                        <location id="2"
+                            file="${:app*debug*MAIN*sourceProvider*0*javaDir*0}/com/commafinder/MainActivity.java"
+                            line="715"
+                            column="31"
+                            startOffset="29364"
+                            endLine="715"
+                            endColumn="77"
+                            endOffset="29410"/>
+                    </map>
+            </map>
+    </map>
+    <map id="UnsafeIntentLaunch">
+            <map id="unprotected">
+                <entry
+                    name="com.commafinder.CommaWidget"
+                    boolean="true"/>
+                <entry
+                    name="com.commafinder.MainActivity"
+                    boolean="true"/>
+            </map>
+    </map>
+    <map id="UnusedResources">
+        <entry
+            name="model"
+            string="color[surface(U),accent(U),border_default(U),error(U),info(U),ic_launcher_background(U),bg(U)],drawable[ic_comma_logo(U),ic_launcher_foreground(U),ic_launcher_monochrome(U),widget_bg(U),widget_bg_default(U),widget_bg_error(U),widget_bg_scanning(U)],id[widget_root(U),widget_icon(U),widget_status(U),widget_sub(U)],layout[widget_layout(U)],mipmap[ic_launcher(U),ic_launcher_round(U)],string[app_name(U),widget_icon(U),widget_status_default(U),widget_action_hint(U)],style[AppTheme(U),Theme_AppCompat_NoActionBar(R)],xml[data_extraction_rules(U),backup_rules(U),comma_widget_info(U)];a^0^1,b^0^2,c^0^3,d^0^4,12^a^16^17^18,13^5^8^9,14^5^8^9,19^1a^6,1d^12;;;"/>
+    </map>
+
+</incidents>

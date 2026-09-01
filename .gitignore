@@ -1,0 +1,26 @@
+# Gradle / Android build output
+.gradle/
+/build/
+/release/
+*.apk
+*.aab
+
+# Android Studio / IntelliJ IDEA
+.idea/
+*.iml
+
+# Local machine configuration
+local.properties
+
+# Native build output
+.externalNativeBuild/
+.cxx/
+
+# Signing material and the locally supplied SSH key
+/id_rsa.pem
+*.jks
+*.keystore
+
+# OS metadata
+.DS_Store
+Thumbs.db

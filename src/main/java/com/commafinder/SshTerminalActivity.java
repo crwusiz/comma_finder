@@ -17,6 +17,8 @@ import android.text.style.StyleSpan;
 import android.util.Log;
 import android.util.TypedValue;
 import android.view.View;
+import android.view.WindowManager;
+import android.view.inputmethod.InputMethodManager;
 import android.widget.EditText;
 import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
@@ -63,6 +65,11 @@ public class SshTerminalActivity extends AppCompatActivity {
     private static final int MAX_MACRO_COUNT = 100;
     private static final int MAX_MACRO_LABEL_LENGTH = 100;
     private static final int MAX_MACRO_COMMAND_LENGTH = 10_000;
+    private static final float KEYBOARD_COLUMN_COUNT = 10.0f;
+    private static final int KEYBOARD_KEY_HEIGHT_DP = 48;
+    private static final int KEYBOARD_KEY_GAP_DP = 2;
+    private static final float KEYBOARD_TEXT_SIZE_SP = 18f;
+    private static final float KEYBOARD_ICON_SIZE_SP = 21f;
     private static final String CUSTOM_KEY_FILE_NAME = "custom_id_rsa";
     private static final String DEFAULT_KEY_FILE_NAME = "id_rsa_current";
     private static final String DEFAULT_KEY_STAGING_FILE_NAME = "id_rsa_staging";
@@ -96,6 +103,9 @@ public class SshTerminalActivity extends AppCompatActivity {
     private LinearLayout macroHeader;
     private HorizontalScrollView macroScroll;
     private TextView btnToggleKb;
+    private EditText macroKeyboardTarget;
+    private EditText macroLabelInput;
+    private EditText macroCommandInput;
 
     private static final String SHIFT_INACTIVE_KEY = "SHIFT_INACTIVE";
     private static final String SHIFT_ACTIVE_KEY = "SHIFT_ACTIVE";
@@ -498,24 +508,34 @@ public class SshTerminalActivity extends AppCompatActivity {
     }
 
     private LinearLayout createCustomKeyboard() {
+        return createCustomKeyboard(false);
+    }
+
+    private LinearLayout createCustomKeyboard(boolean isMacroKeyboard) {
         LinearLayout kb = new LinearLayout(this);
         kb.setOrientation(LinearLayout.VERTICAL);
         kb.setBackgroundColor(Color.parseColor("#050505"));
-        kb.setPadding(0, dp(8), 0, 0);
-        kb.setVisibility(View.GONE);
-        renderKeyboard(kb);
+        kb.setPadding(0, dp(isMacroKeyboard ? 6 : 8), 0, 0);
+        kb.setVisibility(isMacroKeyboard ? View.VISIBLE : View.GONE);
+        kb.setTag(keyboardMode);
+        renderKeyboard(kb, isMacroKeyboard);
         return kb;
     }
 
-    private void renderKeyboard(LinearLayout keyboard) {
+    private void renderKeyboard(LinearLayout keyboard, boolean isMacroKeyboard) {
         keyboard.removeAllViews();
 
-        for (String[] row : getCurrentKeyboardLayout()) {
+        for (String[] row : getCurrentKeyboardLayout(keyboard)) {
             LinearLayout rowLayout = new LinearLayout(this);
             rowLayout.setOrientation(LinearLayout.HORIZONTAL);
             rowLayout.setLayoutParams(new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
             rowLayout.setGravity(android.view.Gravity.CENTER);
+
+            float rowWeight = 0f;
+            for (String key : row) rowWeight += getKeyWeight(key);
+            float sideSpacerWeight = Math.max(0f, KEYBOARD_COLUMN_COUNT - rowWeight) / 2f;
+            addKeyboardSpacer(rowLayout, sideSpacerWeight);
 
             for (String key : row) {
                 TextView btn = new TextView(this);
@@ -529,62 +549,105 @@ public class SshTerminalActivity extends AppCompatActivity {
                         || SHIFT_INACTIVE_KEY.equals(key)
                         || SHIFT_ACTIVE_KEY.equals(key);
                 btn.setTextColor(isActiveShift || isEnterKey ? Color.BLACK : Color.WHITE);
-                btn.setTextSize(isLargeSpecialKey ? 24f : 15f);
+                btn.setTextSize(isLargeSpecialKey ? KEYBOARD_ICON_SIZE_SP : KEYBOARD_TEXT_SIZE_SP);
                 btn.setTypeface(android.graphics.Typeface.DEFAULT,
                         isLargeSpecialKey ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
                 btn.setContentDescription(getKeyContentDescription(key));
                 btn.setGravity(android.view.Gravity.CENTER);
-                btn.setPadding(0, dp(12), 0, dp(12));
+                btn.setIncludeFontPadding(false);
+                btn.setPadding(0, 0, 0, 0);
 
                 GradientDrawable bg = new GradientDrawable();
                 bg.setColor(Color.parseColor(isEnterKey
                         ? "#00E676"
                         : isActiveShift ? "#4FC3F7" : "#222222"));
-                bg.setCornerRadius(dp(6));
+                bg.setCornerRadius(dp(5));
                 bg.setStroke(dp(1), Color.parseColor(isEnterKey ? "#69F0AE" : "#444444"));
                 btn.setBackground(bg);
 
                 float keyWeight = getKeyWeight(key);
                 LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                        0, LinearLayout.LayoutParams.WRAP_CONTENT, keyWeight);
-                params.setMargins(dp(1), dp(3), dp(1), dp(3));
+                        0, dp(KEYBOARD_KEY_HEIGHT_DP), keyWeight);
+                params.setMargins(dp(KEYBOARD_KEY_GAP_DP / 2), dp(KEYBOARD_KEY_GAP_DP),
+                        dp(KEYBOARD_KEY_GAP_DP / 2), dp(KEYBOARD_KEY_GAP_DP));
                 btn.setLayoutParams(params);
 
                 btn.setOnClickListener(v -> {
-                    int start = etInput.getSelectionStart();
-                    if (start < 0) start = etInput.getText().length();
+                    EditText target = isMacroKeyboard ? macroKeyboardTarget : etInput;
+                    if (target == null || !target.isEnabled()) return;
+
+                    int start = Math.max(0, target.getSelectionStart());
+                    int end = Math.max(0, target.getSelectionEnd());
+                    if (start > end) {
+                        int temporary = start;
+                        start = end;
+                        end = temporary;
+                    }
 
                     switch (key) {
                         case BACKSPACE_KEY -> {
-                            if (start > 0) etInput.getText().delete(start - 1, start);
-                        }
-                        case ENTER_KEY -> sendCommand(etInput.getText().toString() + "\n");
-                        case SPACE_KEY -> etInput.getText().insert(start, " ");
-                        case TAB_KEY -> {
-                            String currentTxt = etInput.getText().toString();
-                            if (!currentTxt.isEmpty()) {
-                                sendCommand(currentTxt + "\t");
-                                etInput.setText("");
-                            } else {
-                                sendCommand(new byte[]{9});
+                            if (start != end) {
+                                target.getText().delete(start, end);
+                            } else if (start > 0) {
+                                target.getText().delete(start - 1, start);
                             }
                         }
-                        case SHIFT_INACTIVE_KEY -> switchKeyboardMode(KeyboardMode.UPPERCASE);
-                        case SHIFT_ACTIVE_KEY -> switchKeyboardMode(KeyboardMode.LOWERCASE);
-                        case NUMERIC_KEY -> switchKeyboardMode(KeyboardMode.NUMBERS);
-                        case SYMBOL_KEY -> switchKeyboardMode(KeyboardMode.SPECIALS);
-                        case ABC_KEY -> switchKeyboardMode(KeyboardMode.LOWERCASE);
-                        default -> etInput.getText().insert(start, key);
+                        case ENTER_KEY -> {
+                            if (isMacroKeyboard) {
+                                if (target == macroLabelInput && macroCommandInput != null) {
+                                    macroCommandInput.requestFocus();
+                                } else {
+                                    replaceSelection(target, start, end, "\n");
+                                }
+                            } else {
+                                sendCommand(etInput.getText().toString() + "\n");
+                            }
+                        }
+                        case SPACE_KEY -> replaceSelection(target, start, end, " ");
+                        case TAB_KEY -> {
+                            if (isMacroKeyboard) {
+                                replaceSelection(target, start, end, "\t");
+                            } else {
+                                String currentTxt = etInput.getText().toString();
+                                if (!currentTxt.isEmpty()) {
+                                    sendCommand(currentTxt + "\t");
+                                    etInput.setText("");
+                                } else {
+                                    sendCommand(new byte[]{9});
+                                }
+                            }
+                        }
+                        case SHIFT_INACTIVE_KEY -> switchKeyboardMode(KeyboardMode.UPPERCASE, keyboard, isMacroKeyboard);
+                        case SHIFT_ACTIVE_KEY -> switchKeyboardMode(KeyboardMode.LOWERCASE, keyboard, isMacroKeyboard);
+                        case NUMERIC_KEY -> switchKeyboardMode(KeyboardMode.NUMBERS, keyboard, isMacroKeyboard);
+                        case SYMBOL_KEY -> switchKeyboardMode(KeyboardMode.SPECIALS, keyboard, isMacroKeyboard);
+                        case ABC_KEY -> switchKeyboardMode(KeyboardMode.LOWERCASE, keyboard, isMacroKeyboard);
+                        default -> replaceSelection(target, start, end, key);
                     }
                 });
                 rowLayout.addView(btn);
             }
+            addKeyboardSpacer(rowLayout, sideSpacerWeight);
             keyboard.addView(rowLayout);
         }
     }
 
-    private String[][] getCurrentKeyboardLayout() {
-        return switch (keyboardMode) {
+    private void addKeyboardSpacer(LinearLayout row, float weight) {
+        if (weight <= 0f) return;
+        View spacer = new View(this);
+        spacer.setLayoutParams(new LinearLayout.LayoutParams(0, 1, weight));
+        row.addView(spacer);
+    }
+
+    private void replaceSelection(EditText target, int start, int end, String value) {
+        target.getText().replace(start, end, value);
+    }
+
+    private String[][] getCurrentKeyboardLayout(LinearLayout keyboard) {
+        KeyboardMode mode = keyboard.getTag() instanceof KeyboardMode
+                ? (KeyboardMode) keyboard.getTag()
+                : KeyboardMode.LOWERCASE;
+        return switch (mode) {
             case LOWERCASE -> LOWERCASE_KEYBOARD;
             case UPPERCASE -> UPPERCASE_KEYBOARD;
             case NUMBERS -> NUMBER_KEYBOARD;
@@ -592,9 +655,11 @@ public class SshTerminalActivity extends AppCompatActivity {
         };
     }
 
-    private void switchKeyboardMode(KeyboardMode mode) {
-        keyboardMode = mode;
-        renderKeyboard(customKeyboardLayout);
+    private void switchKeyboardMode(
+            KeyboardMode mode, LinearLayout keyboard, boolean isMacroKeyboard) {
+        keyboard.setTag(mode);
+        if (!isMacroKeyboard) keyboardMode = mode;
+        renderKeyboard(keyboard, isMacroKeyboard);
     }
 
     private String getKeyLabel(String key) {
@@ -623,9 +688,9 @@ public class SshTerminalActivity extends AppCompatActivity {
 
     private float getKeyWeight(String key) {
         return switch (key) {
-            case SPACE_KEY -> 3.0f;
+            case SPACE_KEY -> 2.5f;
             case ENTER_KEY, SHIFT_INACTIVE_KEY, SHIFT_ACTIVE_KEY,
-                    BACKSPACE_KEY, NUMERIC_KEY, SYMBOL_KEY, ABC_KEY, TAB_KEY -> 1.35f;
+                    BACKSPACE_KEY, NUMERIC_KEY, SYMBOL_KEY, ABC_KEY, TAB_KEY -> 1.5f;
             default -> 1.0f;
         };
     }
@@ -961,16 +1026,29 @@ public class SshTerminalActivity extends AppCompatActivity {
 
         etLabel.setHint("버튼 이름 (예: Reboot)");
         etLabel.setTextColor(Color.WHITE);
+        etLabel.setSingleLine(true);
+        configureForBuiltInKeyboard(etLabel);
         layout.addView(etLabel);
 
         etCommand.setHint("명령어 (예: sudo reboot)");
         etCommand.setTextColor(Color.WHITE);
+        etCommand.setSingleLine(false);
+        etCommand.setMaxLines(3);
+        configureForBuiltInKeyboard(etCommand);
         layout.addView(etCommand);
+
+        View.OnFocusChangeListener macroFocusListener = (view, hasFocus) -> {
+            if (hasFocus) macroKeyboardTarget = (EditText) view;
+        };
+        etLabel.setOnFocusChangeListener(macroFocusListener);
+        etCommand.setOnFocusChangeListener(macroFocusListener);
 
         if (isEdit) {
             MacroItem item = macroList.get(position);
             etLabel.setText(item.label);
-            String displayCmd = item.command.replace("\n", "");
+            String displayCmd = item.command.endsWith("\n")
+                    ? item.command.substring(0, item.command.length() - 1)
+                    : item.command;
             if (item.isByte && item.command.equals("3")) displayCmd = "Ctrl+C (특수)";
             etCommand.setText(displayCmd);
             if (item.isByte) etCommand.setEnabled(false);
@@ -978,6 +1056,20 @@ public class SshTerminalActivity extends AppCompatActivity {
 
         builder.setView(layout);
         return builder;
+    }
+
+    private void configureForBuiltInKeyboard(EditText input) {
+        input.setShowSoftInputOnFocus(false);
+        input.setImeOptions(input.getImeOptions()
+                | android.view.inputmethod.EditorInfo.IME_FLAG_NO_EXTRACT_UI);
+    }
+
+    private void hideSystemKeyboard(View view) {
+        InputMethodManager inputMethodManager =
+                (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+        if (inputMethodManager != null) {
+            inputMethodManager.hideSoftInputFromWindow(view.getWindowToken(), 0);
+        }
     }
 
     private LinearLayout createOrderLayout(final int position, final AlertDialog dialog) {
@@ -1021,7 +1113,11 @@ public class SshTerminalActivity extends AppCompatActivity {
         final EditText etLabel = new EditText(this);
         final EditText etCommand = new EditText(this);
 
+        macroLabelInput = etLabel;
+        macroCommandInput = etCommand;
         AlertDialog.Builder builder = createMacroDialogBuilder(position, isEdit, etLabel, etCommand, layout);
+        macroKeyboardTarget = etLabel;
+        layout.addView(createCustomKeyboard(true));
         final AlertDialog dialog = builder.create();
 
         dialog.setButton(AlertDialog.BUTTON_NEGATIVE, "취소", (d, which) -> dialog.cancel());
@@ -1067,6 +1163,24 @@ public class SshTerminalActivity extends AppCompatActivity {
         }
 
         dialog.show();
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().setSoftInputMode(
+                    WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN
+                            | WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING);
+            dialog.getWindow().setLayout(
+                    WindowManager.LayoutParams.MATCH_PARENT,
+                    WindowManager.LayoutParams.WRAP_CONTENT);
+        }
+        etLabel.requestFocus();
+        etLabel.setSelection(etLabel.getText().length());
+        hideSystemKeyboard(etLabel);
+        dialog.setOnDismissListener(ignored -> {
+            if (macroKeyboardTarget == etLabel || macroKeyboardTarget == etCommand) {
+                macroKeyboardTarget = null;
+            }
+            if (macroLabelInput == etLabel) macroLabelInput = null;
+            if (macroCommandInput == etCommand) macroCommandInput = null;
+        });
     }
 
     private void connectSSH() {
