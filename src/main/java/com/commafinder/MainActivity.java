@@ -61,8 +61,6 @@ public class MainActivity extends AppCompatActivity {
 
     private static final int SOCKET_TIMEOUT_MS = 800;
     private static final int THREAD_POOL = 50;
-    private static final String C4_REFERRAL_URL = "https://refer.comma.ai/G8UYB3D";
-
     private static final String COLOR_BG = "#0B0E0D";
     private static final String COLOR_SURFACE = "#141817";
     private static final String COLOR_SURFACE_RAISED = "#191E1C";
@@ -290,16 +288,16 @@ public class MainActivity extends AppCompatActivity {
         gridRow1.setLayoutParams(new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
 
-        btnScan7000 = makeButton("웹으로 연결\n포트 7000 검색", COLOR_PRIMARY, "#0A1C11");
-        setButtonGradient(btnScan7000, "#5AF0A3", "#20AA68", "#8AFCBE", "#071A10");
+        btnScan7000 = makeButton("웹으로 연결\n포트 7000 검색", COLOR_PRIMARY, COLOR_TEXT);
+        setButtonGradient(btnScan7000, "#183F2B", "#10271D", "#3F805A", COLOR_TEXT);
         btnScan7000.setLayoutParams(new LinearLayout.LayoutParams(0, dp(76), 1.0f));
         btnScan7000.setOnClickListener(v -> { if (scanning) stopScan(); else startScan(7000); });
         gridRow1.addView(btnScan7000);
 
         gridRow1.addView(hSpace(22));
 
-        btnScan22 = makeButton("SSH로 연결\n포트 22 검색", COLOR_PRIMARY, "#0A1C11");
-        setButtonGradient(btnScan22, "#68D8FF", "#466BE8", "#9BE7FF", "#071525");
+        btnScan22 = makeButton("SSH로 연결\n포트 22 검색", COLOR_INFO, COLOR_TEXT);
+        setButtonGradient(btnScan22, "#183548", "#102431", "#3F789A", COLOR_TEXT);
         btnScan22.setLayoutParams(new LinearLayout.LayoutParams(0, dp(76), 1.0f));
         btnScan22.setOnClickListener(v -> { if (scanning) stopScan(); else startScan(22); });
         gridRow1.addView(btnScan22);
@@ -323,67 +321,6 @@ public class MainActivity extends AppCompatActivity {
         logScroll.addView(tvLog);
         logCard.addView(logScroll);
         content.addView(logCard);
-
-        content.addView(vSpace(18));
-
-        View.OnClickListener openC4Referral = v -> {
-            try {
-                startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(C4_REFERRAL_URL)));
-            } catch (Exception e) {
-                appendLog("구매 링크를 열 수 없습니다", COLOR_ERROR);
-            }
-        };
-
-        LinearLayout c4Promo = new LinearLayout(this);
-        c4Promo.setOrientation(LinearLayout.HORIZONTAL);
-        c4Promo.setGravity(Gravity.CENTER_VERTICAL);
-        c4Promo.setPadding(dp(12), dp(12), dp(10), dp(12));
-        c4Promo.setBackground(promoBackground());
-        c4Promo.setElevation(dp(4));
-        c4Promo.setClickable(true);
-        c4Promo.setFocusable(true);
-        c4Promo.setContentDescription(
-                "Comma Four $50 할인 혜택");
-        c4Promo.setOnClickListener(openC4Referral);
-        c4Promo.setLayoutParams(new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(80)));
-
-        ImageView promoLogo = new ImageView(this);
-        promoLogo.setImageResource(R.drawable.ic_comma_logo);
-        promoLogo.setColorFilter(Color.WHITE);
-        promoLogo.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
-        promoLogo.setContentDescription(null);
-        LinearLayout.LayoutParams promoLogoParams = new LinearLayout.LayoutParams(dp(30), dp(30));
-        promoLogoParams.setMargins(0, 0, dp(8), 0);
-        promoLogo.setLayoutParams(promoLogoParams);
-        c4Promo.addView(promoLogo);
-
-        TextView promoTitle = makeText("Comma Four $50 할인 혜택", 18, COLOR_TEXT, true);
-        promoTitle.setGravity(Gravity.CENTER_VERTICAL);
-        promoTitle.setLetterSpacing(-0.02f);
-        promoTitle.setTextScaleX(0.94f);
-        promoTitle.setSingleLine(true);
-        LinearLayout.LayoutParams promoTitleParams = new LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.MATCH_PARENT, 1f);
-        promoTitleParams.setMargins(0, 0, dp(10), 0);
-        promoTitle.setLayoutParams(promoTitleParams);
-        c4Promo.addView(promoTitle);
-
-        TextView c4ReferralButton = makeText(
-                "구매하기  ↗", 14, "#281006", true);
-        c4ReferralButton.setGravity(Gravity.CENTER);
-        c4ReferralButton.setLetterSpacing(0.02f);
-        c4ReferralButton.setPadding(dp(8), 0, dp(8), 0);
-        c4ReferralButton.setBackground(promoButtonBackground());
-        c4ReferralButton.setElevation(dp(2));
-        c4ReferralButton.setClickable(true);
-        c4ReferralButton.setFocusable(true);
-        c4ReferralButton.setOnClickListener(openC4Referral);
-        c4ReferralButton.setLayoutParams(new LinearLayout.LayoutParams(dp(96), dp(48)));
-        c4Promo.addView(c4ReferralButton);
-
-        content.addView(c4Promo);
 
         scroll.addView(content);
         root.addView(scroll);
@@ -725,12 +662,12 @@ public class MainActivity extends AppCompatActivity {
         btnScan7000.setText("웹으로 연결\n포트 7000 검색");
         btnScan7000.setEnabled(true);
         btnScan7000.setAlpha(1f);
-        setButtonGradient(btnScan7000, "#5AF0A3", "#20AA68", "#8AFCBE", "#071A10");
+        setButtonGradient(btnScan7000, "#183F2B", "#10271D", "#3F805A", COLOR_TEXT);
 
         btnScan22.setText("SSH로 연결\n포트 22 검색");
         btnScan22.setEnabled(true);
         btnScan22.setAlpha(1f);
-        setButtonGradient(btnScan22, "#68D8FF", "#466BE8", "#9BE7FF", "#071525");
+        setButtonGradient(btnScan22, "#183548", "#102431", "#3F789A", COLOR_TEXT);
     }
 
     private void onFound(String ip) {
@@ -958,29 +895,6 @@ public class MainActivity extends AppCompatActivity {
             drawable.setStroke(dp(strokeWidthDp), Color.parseColor(strokeColor));
         }
         return drawable;
-    }
-
-    private GradientDrawable promoBackground() {
-        GradientDrawable drawable = new GradientDrawable(
-                GradientDrawable.Orientation.TL_BR,
-                new int[]{Color.parseColor("#183F2B"), Color.parseColor("#10271D")});
-        drawable.setCornerRadius(dp(18));
-        drawable.setStroke(dp(1), Color.parseColor("#3F805A"));
-        return drawable;
-    }
-
-    private Drawable promoButtonBackground() {
-        GradientDrawable gradient = new GradientDrawable(
-                GradientDrawable.Orientation.TL_BR,
-                new int[]{Color.parseColor("#FFBE55"), Color.parseColor("#EF6738")});
-        gradient.setCornerRadius(dp(12));
-        gradient.setStroke(dp(1), Color.parseColor("#FFD996"));
-
-        GradientDrawable rippleMask = roundedBackground("#FFFFFF", null, 0, 12);
-        return new android.graphics.drawable.RippleDrawable(
-                android.content.res.ColorStateList.valueOf(Color.argb(60, 255, 255, 255)),
-                gradient,
-                rippleMask);
     }
 
     private Drawable gradientButtonBackground(
