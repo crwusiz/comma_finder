@@ -2,8 +2,12 @@ plugins {
     id 'com.android.application'
 }
 
-def appVersionCode = 66
-def appVersionName = "1.56"
+def appVersionCode = 166
+def appVersionName = String.format(
+        Locale.ROOT,
+        "%d.%02d",
+        appVersionCode.intdiv(100),
+        appVersionCode % 100)
 
 // Release signing is supplied at publish time so secrets never live in source control.
 def releaseKeystorePath = providers.environmentVariable("CF_KEYSTORE_PATH")

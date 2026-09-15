@@ -1019,10 +1019,9 @@ public class SshTerminalActivity extends AppCompatActivity {
 
     private AlertDialog.Builder createMacroDialogBuilder(int position, boolean isEdit, EditText etLabel, EditText etCommand, LinearLayout layout) {
         AlertDialog.Builder builder = new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert);
-        builder.setTitle(isEdit ? "명령어 편집" : "새 명령어 추가");
 
         layout.setOrientation(LinearLayout.VERTICAL);
-        layout.setPadding(dp(20), dp(10), dp(20), dp(10));
+        layout.setPadding(dp(16), dp(6), dp(16), dp(8));
 
         etLabel.setHint("버튼 이름 (예: Reboot)");
         etLabel.setTextColor(Color.WHITE);
@@ -1107,6 +1106,16 @@ public class SshTerminalActivity extends AppCompatActivity {
         return orderLayout;
     }
 
+    private TextView createMacroDialogAction(String text, int color) {
+        TextView action = new TextView(this);
+        action.setText(text);
+        action.setTextColor(color);
+        action.setTextSize(14f);
+        action.setGravity(android.view.Gravity.CENTER);
+        action.setPadding(dp(10), dp(8), dp(10), dp(8));
+        return action;
+    }
+
     private void showMacroDialog(final int position) {
         boolean isEdit = (position >= 0);
         LinearLayout layout = new LinearLayout(this);
@@ -1117,20 +1126,46 @@ public class SshTerminalActivity extends AppCompatActivity {
         macroCommandInput = etCommand;
         AlertDialog.Builder builder = createMacroDialogBuilder(position, isEdit, etLabel, etCommand, layout);
         macroKeyboardTarget = etLabel;
+
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(LinearLayout.HORIZONTAL);
+        header.setGravity(android.view.Gravity.CENTER_VERTICAL);
+
+        TextView title = new TextView(this);
+        title.setText(isEdit ? "명령어 편집" : "새 명령어 추가");
+        title.setTextColor(Color.WHITE);
+        title.setTextSize(18f);
+        title.setLayoutParams(new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        header.addView(title);
+
+        TextView deleteAction = null;
+        if (isEdit) {
+            deleteAction = createMacroDialogAction("삭제", Color.parseColor("#FF8A80"));
+            header.addView(deleteAction);
+        }
+
+        TextView cancelAction = createMacroDialogAction("취소", Color.parseColor("#BDBDBD"));
+        TextView saveAction = createMacroDialogAction("저장", Color.parseColor("#4FC3F7"));
+        header.addView(cancelAction);
+        header.addView(saveAction);
+        layout.addView(header, 0);
+
         layout.addView(createCustomKeyboard(true));
         final AlertDialog dialog = builder.create();
 
-        dialog.setButton(AlertDialog.BUTTON_NEGATIVE, "취소", (d, which) -> dialog.cancel());
+        cancelAction.setOnClickListener(v -> dialog.cancel());
 
-        if (isEdit) {
-            dialog.setButton(AlertDialog.BUTTON_NEUTRAL, "삭제", (d, which) -> {
+        if (deleteAction != null) {
+            deleteAction.setOnClickListener(v -> {
                 macroList.remove(position);
                 saveMacros();
                 refreshMacroUI();
+                dialog.dismiss();
             });
         }
 
-        dialog.setButton(AlertDialog.BUTTON_POSITIVE, "저장", (d, which) -> {
+        saveAction.setOnClickListener(v -> {
             String label = etLabel.getText().toString().trim();
             String cmd = etCommand.getText().toString().trim();
 
@@ -1156,6 +1191,7 @@ public class SshTerminalActivity extends AppCompatActivity {
 
             saveMacros();
             refreshMacroUI();
+            dialog.dismiss();
         });
 
         if (isEdit) {
