@@ -20,6 +20,7 @@ import android.view.View;
 import android.view.WindowManager;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.EditText;
+import android.widget.FrameLayout;
 import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -34,6 +35,7 @@ import androidx.core.view.WindowInsetsCompat;
 
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
+import com.jcraft.jsch.ChannelExec;
 import com.jcraft.jsch.ChannelShell;
 import com.jcraft.jsch.JSch;
 import com.jcraft.jsch.Session;
@@ -77,6 +79,9 @@ public class SshTerminalActivity extends AppCompatActivity {
     private static final String TMUX_DETACH_COMMAND = "`d";
     private static final String TMUX_CLOSE_LEGACY_COMMAND = "`x";
     private static final String TMUX_CLOSE_COMMAND = "`xy\n";
+    private static final Pattern SHELL_SCRIPT_COMMAND_PATTERN = Pattern.compile(
+            "^(?:(?:sudo\\s+)?(?:(?:bash|sh)\\s+)?)((?:/|\\./|\\.\\./)[^\\s;&|]+\\.sh)(?:\\s.*)?$",
+            Pattern.CASE_INSENSITIVE);
     private static final Pattern OSC_PATTERN =
             Pattern.compile("\u001B].*?(?:\u0007|\u001B\\\\)");
     private static final Pattern CHARSET_PATTERN =
@@ -92,6 +97,7 @@ public class SshTerminalActivity extends AppCompatActivity {
     private TextView tvTitle;
     private TextView tvConsole;
     private ScrollView scrollConsole;
+    private FrameLayout reconnectOverlay;
     private EditText etInput;
     private LinearLayout macroContainer;
 
@@ -113,7 +119,6 @@ public class SshTerminalActivity extends AppCompatActivity {
     private static final String NUMERIC_KEY = "NUMERIC";
     private static final String SYMBOL_KEY = "SYMBOL";
     private static final String ABC_KEY = "ABC";
-    private static final String TAB_KEY = "TAB";
     private static final String SPACE_KEY = "SPACE";
     private static final String ENTER_KEY = "ENTER";
 
@@ -125,31 +130,32 @@ public class SshTerminalActivity extends AppCompatActivity {
             {"q", "w", "e", "r", "t", "y", "u", "i", "o", "p"},
             {"a", "s", "d", "f", "g", "h", "j", "k", "l"},
             {SHIFT_INACTIVE_KEY, "z", "x", "c", "v", "b", "n", "m", BACKSPACE_KEY},
-            {NUMERIC_KEY, TAB_KEY, "/", "-", SPACE_KEY, ".", ENTER_KEY}
+            {NUMERIC_KEY, "/", "-", SPACE_KEY, ".", ENTER_KEY}
     };
 
     private static final String[][] UPPERCASE_KEYBOARD = {
             {"Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"},
             {"A", "S", "D", "F", "G", "H", "J", "K", "L"},
             {SHIFT_ACTIVE_KEY, "Z", "X", "C", "V", "B", "N", "M", BACKSPACE_KEY},
-            {NUMERIC_KEY, TAB_KEY, "/", "-", SPACE_KEY, ".", ENTER_KEY}
+            {NUMERIC_KEY, "/", "-", SPACE_KEY, ".", ENTER_KEY}
     };
 
     private static final String[][] NUMBER_KEYBOARD = {
             {"1", "2", "3", "4", "5", "6", "7", "8", "9", "0"},
             {"-", "/", ":", ";", "(", ")", "$", "&", "@", "\""},
             {SYMBOL_KEY, "_", ",", "?", "!", "`", BACKSPACE_KEY},
-            {ABC_KEY, TAB_KEY, SPACE_KEY, ".", ENTER_KEY}
+            {ABC_KEY, SPACE_KEY, ".", ENTER_KEY}
     };
 
     private static final String[][] SPECIAL_KEYBOARD = {
             {"[", "]", "{", "}", "#", "%", "^", "*", "+", "="},
             {"_", "\\", "|", "~", "<", ">", "€", "£", "¥", "•"},
             {NUMERIC_KEY, "-", ",", "?", "!", "'", BACKSPACE_KEY},
-            {ABC_KEY, TAB_KEY, SPACE_KEY, ".", ENTER_KEY}
+            {ABC_KEY, SPACE_KEY, ".", ENTER_KEY}
     };
 
     private KeyboardMode keyboardMode = KeyboardMode.LOWERCASE;
+    private volatile boolean isSshConnected;
 
     private volatile Session session;
     private volatile ChannelShell channel;
@@ -159,7 +165,7 @@ public class SshTerminalActivity extends AppCompatActivity {
     private final AtomicInteger connectionGeneration = new AtomicInteger();
     private volatile boolean destroyed;
 
-    private boolean isTmuxMode = false;
+    private volatile boolean isTmuxMode = false;
 
     private int currentTextColor = Color.parseColor("#DDDDDD");
     private int currentBgColor = Color.TRANSPARENT;
@@ -283,10 +289,15 @@ public class SshTerminalActivity extends AppCompatActivity {
     }
 
     private void buildUI() {
+        FrameLayout screenContainer = new FrameLayout(this);
+
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(Color.parseColor("#0A0A0A"));
         root.setPadding(dp(16), dp(16), dp(16), dp(16));
+        root.setLayoutParams(new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT));
 
         ViewCompat.setOnApplyWindowInsetsListener(root, (v, insets) -> {
             int top = insets.getInsets(WindowInsetsCompat.Type.systemBars()).top;
@@ -482,7 +493,40 @@ public class SshTerminalActivity extends AppCompatActivity {
         root.addView(customKeyboardLayout);
 
         refreshMacroUI();
-        setContentView(root);
+        screenContainer.addView(root);
+
+        reconnectOverlay = new FrameLayout(this);
+        reconnectOverlay.setBackgroundColor(Color.parseColor("#88000000"));
+        reconnectOverlay.setClickable(true);
+        reconnectOverlay.setFocusable(true);
+        reconnectOverlay.setVisibility(View.GONE);
+
+        TextView reconnectButton = new TextView(this);
+        reconnectButton.setText("↻ 재접속");
+        reconnectButton.setTextColor(Color.parseColor("#FFCA28"));
+        reconnectButton.setTextSize(20f);
+        reconnectButton.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        reconnectButton.setGravity(android.view.Gravity.CENTER);
+        reconnectButton.setPadding(dp(28), dp(16), dp(28), dp(16));
+        reconnectButton.setContentDescription("SSH 재접속");
+
+        GradientDrawable reconnectBackground = new GradientDrawable();
+        reconnectBackground.setColor(Color.parseColor("#DD1A1A1A"));
+        reconnectBackground.setStroke(dp(2), Color.parseColor("#FFCA28"));
+        reconnectBackground.setCornerRadius(dp(12));
+        reconnectButton.setBackground(reconnectBackground);
+        reconnectButton.setOnClickListener(v -> reconnectSSH());
+
+        FrameLayout.LayoutParams reconnectParams = new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                android.view.Gravity.CENTER);
+        reconnectOverlay.addView(reconnectButton, reconnectParams);
+        screenContainer.addView(reconnectOverlay, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT));
+
+        setContentView(screenContainer);
     }
 
     private void toggleKeyboard(boolean show) {
@@ -604,19 +648,6 @@ public class SshTerminalActivity extends AppCompatActivity {
                             }
                         }
                         case SPACE_KEY -> replaceSelection(target, start, end, " ");
-                        case TAB_KEY -> {
-                            if (isMacroKeyboard) {
-                                replaceSelection(target, start, end, "\t");
-                            } else {
-                                String currentTxt = etInput.getText().toString();
-                                if (!currentTxt.isEmpty()) {
-                                    sendCommand(currentTxt + "\t");
-                                    etInput.setText("");
-                                } else {
-                                    sendCommand(new byte[]{9});
-                                }
-                            }
-                        }
                         case SHIFT_INACTIVE_KEY -> switchKeyboardMode(KeyboardMode.UPPERCASE, keyboard, isMacroKeyboard);
                         case SHIFT_ACTIVE_KEY -> switchKeyboardMode(KeyboardMode.LOWERCASE, keyboard, isMacroKeyboard);
                         case NUMERIC_KEY -> switchKeyboardMode(KeyboardMode.NUMBERS, keyboard, isMacroKeyboard);
@@ -669,7 +700,6 @@ public class SshTerminalActivity extends AppCompatActivity {
             case NUMERIC_KEY -> "123";
             case SYMBOL_KEY -> "#+=";
             case ABC_KEY -> "ABC";
-            case TAB_KEY -> "Tab";
             case SPACE_KEY -> "␣";
             case ENTER_KEY -> "↵";
             default -> key;
@@ -690,7 +720,7 @@ public class SshTerminalActivity extends AppCompatActivity {
         return switch (key) {
             case SPACE_KEY -> 2.5f;
             case ENTER_KEY, SHIFT_INACTIVE_KEY, SHIFT_ACTIVE_KEY,
-                    BACKSPACE_KEY, NUMERIC_KEY, SYMBOL_KEY, ABC_KEY, TAB_KEY -> 1.5f;
+                    BACKSPACE_KEY, NUMERIC_KEY, SYMBOL_KEY, ABC_KEY -> 1.5f;
             default -> 1.0f;
         };
     }
@@ -700,16 +730,32 @@ public class SshTerminalActivity extends AppCompatActivity {
             if (destroyed || tvStatusIcon == null) return;
             switch (status) {
                 case "CONNECTING":
+                    isSshConnected = false;
                     tvStatusIcon.setText("🟡");
+                    if (reconnectOverlay != null) reconnectOverlay.setVisibility(View.GONE);
                     break;
                 case "CONNECTED":
+                    isSshConnected = true;
                     tvStatusIcon.setText("🟢");
+                    if (reconnectOverlay != null) reconnectOverlay.setVisibility(View.GONE);
                     break;
                 case "DISCONNECTED":
+                    isSshConnected = false;
                     tvStatusIcon.setText("🔴");
+                    if (reconnectOverlay != null) reconnectOverlay.setVisibility(View.VISIBLE);
                     break;
             }
+            updateMacroAvailability();
         });
+    }
+
+    private void updateMacroAvailability() {
+        if (macroContainer == null) return;
+        for (int i = 0; i < macroContainer.getChildCount(); i++) {
+            View child = macroContainer.getChildAt(i);
+            child.setEnabled(isSshConnected);
+            if (child instanceof TextView) child.setAlpha(isSshConnected ? 1.0f : 0.4f);
+        }
     }
 
     private void updateModeUI() {
@@ -977,6 +1023,7 @@ public class SshTerminalActivity extends AppCompatActivity {
             macroContainer.addView(btn);
             macroContainer.addView(hSpace(8));
         }
+        updateMacroAvailability();
     }
 
     private TextView makeDynamicMacroBtn(MacroItem item, int position) {
@@ -1454,6 +1501,10 @@ public class SshTerminalActivity extends AppCompatActivity {
             commandExecutor.execute(() -> {
                 try {
                     if (!isConnectionActive(generation) || outStream != stream) return;
+                    if (scriptAttachesToTmux(cmd, generation) && !isTmuxMode) {
+                        isTmuxMode = true;
+                        runOnUiThread(this::updateModeUI);
+                    }
                     stream.write(cmd.getBytes(StandardCharsets.UTF_8));
                     stream.flush();
                     runOnUiThread(() -> {
@@ -1466,6 +1517,41 @@ public class SshTerminalActivity extends AppCompatActivity {
             });
         } else {
             updateConnectionStatus("DISCONNECTED");
+        }
+    }
+
+    private boolean scriptAttachesToTmux(String cmd, int generation) {
+        if (cmd == null || isTmuxMode) return false;
+        Matcher matcher = SHELL_SCRIPT_COMMAND_PATTERN.matcher(cmd.trim());
+        if (!matcher.matches()) return false;
+
+        String scriptPath = matcher.group(1);
+        if (!scriptPath.startsWith("/")) return false;
+
+        Session currentSession = session;
+        if (currentSession == null || !currentSession.isConnected() || !isConnectionActive(generation)) {
+            return false;
+        }
+
+        ChannelExec inspectChannel = null;
+        try {
+            inspectChannel = (ChannelExec) currentSession.openChannel("exec");
+            String quotedPath = "'" + scriptPath.replace("'", "'\\''") + "'";
+            inspectChannel.setCommand(
+                    "grep -Eq '^[[:space:]]*(exec[[:space:]]+)?tmux[[:space:]]+(attach|attach-session)([[:space:]]|$)' -- "
+                            + quotedPath);
+            inspectChannel.connect(3000);
+
+            long deadline = System.currentTimeMillis() + 3000;
+            while (!inspectChannel.isClosed() && System.currentTimeMillis() < deadline) {
+                Thread.sleep(20);
+            }
+            return inspectChannel.isClosed() && inspectChannel.getExitStatus() == 0;
+        } catch (Exception e) {
+            Log.w(TAG, "Unable to inspect script for tmux attach: " + scriptPath, e);
+            return false;
+        } finally {
+            if (inspectChannel != null) inspectChannel.disconnect();
         }
     }
 

@@ -2,7 +2,7 @@ plugins {
     id 'com.android.application'
 }
 
-def appVersionCode = 166
+def appVersionCode = 167
 def appVersionName = String.format(
         Locale.ROOT,
         "%d.%02d",
