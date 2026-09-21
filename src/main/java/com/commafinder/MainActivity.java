@@ -87,6 +87,11 @@ public class MainActivity extends AppCompatActivity {
     private Future<?> scanTask;
     private Future<?> ipDetectionTask;
     private Future<?> updateCheckTask;
+    private AppUpdater appUpdater;
+    private final ActivityResultLauncher<Intent> installPermissionLauncher =
+            registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
+                if (appUpdater != null) appUpdater.onPermissionResult();
+            });
     private PortScanner activeScanner;
     private int scanGeneration;
     private volatile boolean scanning = false;
@@ -106,6 +111,29 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         buildUI();
 
+        appUpdater = new AppUpdater(this, new AppUpdater.Listener() {
+            @Override
+            public void showState(String label, Runnable action) {
+                showUpdateAction(label, action);
+            }
+
+            @Override
+            public void showMessage(String message) {
+                appendLog(message, COLOR_INFO);
+            }
+
+            @Override
+            public void onIdle() {
+                showCurrentVersionBadge();
+                checkForUpdates();
+            }
+
+            @Override
+            public void requestInstallPermission(Intent intent) {
+                installPermissionLauncher.launch(intent);
+            }
+        });
+
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
             locationPermissionLauncher.launch(new String[]{
                     Manifest.permission.ACCESS_COARSE_LOCATION,
@@ -118,12 +146,20 @@ public class MainActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         detectIP();
+        appUpdater.resume();
         checkForUpdates();
+    }
+
+    @Override
+    protected void onPause() {
+        appUpdater.pause();
+        super.onPause();
     }
 
     @Override
     protected void onDestroy() {
         destroyed = true;
+        if (appUpdater != null) appUpdater.destroy();
         cancelScan(false);
         cancelTask(ipDetectionTask);
         cancelTask(updateCheckTask);
@@ -164,6 +200,7 @@ public class MainActivity extends AppCompatActivity {
 
         lastDetectedIpString = "";
         detectIP();
+        appUpdater.refresh();
         checkForUpdates();
     }
 
@@ -345,6 +382,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void checkForUpdates() {
+        if (appUpdater.hasDownload()) return;
         cancelTask(updateCheckTask);
         updateCheckTask = backgroundExecutor.submit(() -> {
             HttpURLConnection connection = null;
@@ -379,25 +417,20 @@ public class MainActivity extends AppCompatActivity {
                         }
                     }
 
-                    final String finalApkUrl = (apkUrl != null) ? apkUrl : json.getString("html_url");
+                    final String finalApkUrl = apkUrl;
                     boolean updateAvailable = VersionUtils.isUpdateAvailable(
                             getCurrentVersionName(), remoteVersionName);
 
                     postToMain(() -> {
+                        if (appUpdater.hasDownload()) return;
                         if (updateAvailable) {
-                            btnUpdate.setText(String.format(
-                                    Locale.getDefault(), "v%s 업데이트", remoteVersionName));
-                            btnUpdate.setTextColor(Color.parseColor(COLOR_PRIMARY));
-                            btnUpdate.setBackground(roundedBackground(
-                                    COLOR_PRIMARY_DARK, COLOR_PRIMARY, 1, 20));
-                            btnUpdate.setContentDescription(String.format(
-                                    Locale.getDefault(), "v%s 업데이트 가능. 탭하여 다운로드", remoteVersionName));
-                            btnUpdate.setEnabled(true);
-                            btnUpdate.setFocusable(true);
-                            btnUpdate.setOnClickListener(v -> {
-                                Intent i = new Intent(Intent.ACTION_VIEW, Uri.parse(finalApkUrl));
-                                startActivity(i);
-                            });
+                            if (finalApkUrl == null) {
+                                showUpdateAction("업데이트 준비 중", null);
+                            } else {
+                                showUpdateAction(String.format(Locale.getDefault(),
+                                        "v%s 업데이트", remoteVersionName),
+                                        () -> appUpdater.start(finalApkUrl, remoteVersionName));
+                            }
                         } else {
                             showCurrentVersionBadge();
                         }
@@ -416,6 +449,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void showCurrentVersionBadge() {
+        if (appUpdater != null && appUpdater.hasDownload()) return;
         btnUpdate.setText(String.format(Locale.getDefault(), "v%s", getCurrentVersionName()));
         btnUpdate.setTextColor(Color.parseColor(COLOR_TEXT_SECONDARY));
         btnUpdate.setBackground(roundedBackground(COLOR_SURFACE_RAISED, null, 0, 20));
@@ -425,6 +459,17 @@ public class MainActivity extends AppCompatActivity {
         btnUpdate.setClickable(false);
         btnUpdate.setFocusable(false);
         btnUpdate.setEnabled(false);
+    }
+
+    private void showUpdateAction(String label, Runnable action) {
+        btnUpdate.setText(label);
+        btnUpdate.setTextColor(Color.parseColor(COLOR_PRIMARY));
+        btnUpdate.setBackground(roundedBackground(COLOR_PRIMARY_DARK, COLOR_PRIMARY, 1, 20));
+        btnUpdate.setContentDescription(label);
+        btnUpdate.setOnClickListener(action == null ? null : v -> action.run());
+        btnUpdate.setClickable(action != null);
+        btnUpdate.setFocusable(action != null);
+        btnUpdate.setEnabled(action != null);
     }
 
     private void detectIP() {
