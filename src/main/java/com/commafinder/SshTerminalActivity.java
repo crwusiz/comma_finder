@@ -165,6 +165,27 @@ public class SshTerminalActivity extends AppCompatActivity {
     private final AtomicInteger connectionGeneration = new AtomicInteger();
     private volatile boolean destroyed;
 
+    // Accessed only by tmuxStateExecutor; disconnecting the SSH session also closes this channel.
+    private TmuxStateRequest tmuxStateRequest;
+
+    private static final class TmuxStateRequest {
+        final int generation;
+        final Session session;
+        final ChannelShell shell;
+        final ChannelExec inspectChannel;
+        final ByteArrayOutputStream snapshot = new ByteArrayOutputStream();
+        final byte[] buffer = new byte[1024];
+        InputStream input;
+        long deadline;
+
+        TmuxStateRequest(int generation, Session session, ChannelShell shell, ChannelExec inspectChannel) {
+            this.generation = generation;
+            this.session = session;
+            this.shell = shell;
+            this.inspectChannel = inspectChannel;
+        }
+    }
+
     private volatile boolean isTmuxMode = false;
 
     private int currentTextColor = Color.parseColor("#DDDDDD");
@@ -1473,7 +1494,7 @@ public class SshTerminalActivity extends AppCompatActivity {
         }
         if (bytes.size() == 0) throw new Exception("키 파일을 읽을 수 없습니다.");
 
-        String keyContent = bytes.toString(StandardCharsets.UTF_8.name());
+        String keyContent = new String(bytes.toByteArray(), StandardCharsets.UTF_8);
 
         if (keyContent.contains("PuTTY-User-Key-File")) {
             throw new Exception("""
@@ -1521,53 +1542,69 @@ public class SshTerminalActivity extends AppCompatActivity {
     }
 
     private void pollTmuxState() {
-        int generation = connectionGeneration.get();
-        Session currentSession = session;
-        ChannelShell currentChannel = channel;
-        if (!isSshConnected || !isConnectionActive(generation)
-                || currentSession == null || !currentSession.isConnected()
-                || currentChannel == null || !currentChannel.isConnected()) {
-            return;
-        }
-
-        ChannelExec inspectChannel = null;
+        TmuxStateRequest request = tmuxStateRequest;
+        boolean pending = false;
         try {
-            inspectChannel = (ChannelExec) currentSession.openChannel("exec");
-            inspectChannel.setCommand(TmuxStateProbe.COMMAND);
-            InputStream input = inspectChannel.getInputStream();
-            inspectChannel.connect(3000);
-
-            ByteArrayOutputStream snapshot = new ByteArrayOutputStream();
-            byte[] buffer = new byte[1024];
-            long deadline = android.os.SystemClock.elapsedRealtime() + 3000;
-            while (isConnectionActive(generation)
-                    && android.os.SystemClock.elapsedRealtime() < deadline) {
-                while (input.available() > 0) {
-                    int count = input.read(buffer, 0, Math.min(buffer.length, input.available()));
-                    if (count < 0) break;
-                    snapshot.write(buffer, 0, count);
-                    if (snapshot.size() > 64 * 1024) return;
+            if (request == null) {
+                int generation = connectionGeneration.get();
+                Session currentSession = session;
+                ChannelShell currentChannel = channel;
+                if (!isSshConnected || !isConnectionActive(generation)
+                        || currentSession == null || !currentSession.isConnected()
+                        || currentChannel == null || !currentChannel.isConnected()) {
+                    return;
                 }
-                if (inspectChannel.isClosed() && input.available() == 0) break;
-                Thread.sleep(20);
+
+                ChannelExec inspectChannel = (ChannelExec) currentSession.openChannel("exec");
+                request = new TmuxStateRequest(generation, currentSession, currentChannel, inspectChannel);
+                inspectChannel.setCommand(TmuxStateProbe.COMMAND);
+                request.input = inspectChannel.getInputStream();
+                inspectChannel.connect(3000);
+                request.deadline = android.os.SystemClock.elapsedRealtime() + 3000;
             }
-            if (!inspectChannel.isClosed() || inspectChannel.getExitStatus() != 0) return;
-            Boolean detected = TmuxStateProbe.parse(snapshot.toString(StandardCharsets.UTF_8.name()));
+
+            if (!isConnectionActive(request.generation) || !isSshConnected
+                    || session != request.session || channel != request.shell
+                    || !request.shell.isConnected()) {
+                return;
+            }
+
+            int available;
+            while ((available = request.input.available()) > 0) {
+                int count = request.input.read(request.buffer, 0, Math.min(request.buffer.length, available));
+                if (count < 0) break;
+                request.snapshot.write(request.buffer, 0, count);
+                if (request.snapshot.size() > 64 * 1024) return;
+            }
+
+            if (!request.inspectChannel.isClosed() || request.input.available() > 0) {
+                // Resume on the next scheduled tick instead of sleeping in a polling loop.
+                if (android.os.SystemClock.elapsedRealtime() < request.deadline) {
+                    tmuxStateRequest = request;
+                    pending = true;
+                }
+                return;
+            }
+            if (request.inspectChannel.getExitStatus() != 0) return;
+            Boolean detected = TmuxStateProbe.parse(
+                    new String(request.snapshot.toByteArray(), StandardCharsets.UTF_8));
             if (detected == null) return;
+            TmuxStateRequest completed = request;
             runOnUiThread(() -> {
-                if (isConnectionActive(generation) && isSshConnected
-                        && session == currentSession && channel == currentChannel
-                        && currentChannel.isConnected()) {
+                if (isConnectionActive(completed.generation) && isSshConnected
+                        && session == completed.session && channel == completed.shell
+                        && completed.shell.isConnected()) {
                     setTmuxMode(detected);
                 }
             });
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
         } catch (Exception e) {
             // A failed status probe must not interrupt commands or mark SSH disconnected.
             Log.d(TAG, "Unable to inspect terminal tmux state", e);
         } finally {
-            if (inspectChannel != null) inspectChannel.disconnect();
+            if (!pending) {
+                tmuxStateRequest = null;
+                if (request != null) request.inspectChannel.disconnect();
+            }
         }
     }
 
