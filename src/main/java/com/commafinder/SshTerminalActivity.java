@@ -55,6 +55,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -79,9 +81,6 @@ public class SshTerminalActivity extends AppCompatActivity {
     private static final String TMUX_DETACH_COMMAND = "`d";
     private static final String TMUX_CLOSE_LEGACY_COMMAND = "`x";
     private static final String TMUX_CLOSE_COMMAND = "`xy\n";
-    private static final Pattern SHELL_SCRIPT_COMMAND_PATTERN = Pattern.compile(
-            "^(?:(?:sudo\\s+)?(?:(?:bash|sh)\\s+)?)((?:/|\\./|\\.\\./)[^\\s;&|]+\\.sh)(?:\\s.*)?$",
-            Pattern.CASE_INSENSITIVE);
     private static final Pattern OSC_PATTERN =
             Pattern.compile("\u001B].*?(?:\u0007|\u001B\\\\)");
     private static final Pattern CHARSET_PATTERN =
@@ -162,6 +161,7 @@ public class SshTerminalActivity extends AppCompatActivity {
     private volatile OutputStream outStream;
     private final ExecutorService connectionExecutor = Executors.newSingleThreadExecutor();
     private final ExecutorService commandExecutor = Executors.newSingleThreadExecutor();
+    private final ScheduledExecutorService tmuxStateExecutor = Executors.newSingleThreadScheduledExecutor();
     private final AtomicInteger connectionGeneration = new AtomicInteger();
     private volatile boolean destroyed;
 
@@ -286,6 +286,7 @@ public class SshTerminalActivity extends AppCompatActivity {
         loadMacros();
         buildUI();
         connectSSH();
+        tmuxStateExecutor.scheduleWithFixedDelay(this::pollTmuxState, 1, 1, TimeUnit.SECONDS);
     }
 
     private void buildUI() {
@@ -343,19 +344,33 @@ public class SshTerminalActivity extends AppCompatActivity {
         btnKey.setOnClickListener(v -> showKeySettingDialog());
         header.addView(btnKey);
 
-        TextView btnReconnect = new TextView(this);
-        btnReconnect.setText("↻ 재접속");
-        btnReconnect.setTextColor(Color.parseColor("#FFCA28"));
-        btnReconnect.setPadding(dp(10), dp(5), dp(10), dp(5));
-        btnReconnect.setOnClickListener(v -> reconnectSSH());
-        header.addView(btnReconnect);
+        androidx.appcompat.widget.AppCompatButton btnClose =
+                new androidx.appcompat.widget.AppCompatButton(this);
+        btnClose.setText("X");
+        btnClose.setTextColor(Color.parseColor("#FF6666"));
+        btnClose.setTextSize(24f);
+        btnClose.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        btnClose.setGravity(android.view.Gravity.CENTER);
+        btnClose.setPadding(0, 0, 0, 0);
+        btnClose.setMinWidth(0);
+        btnClose.setMinHeight(0);
+        btnClose.setIncludeFontPadding(false);
+        btnClose.setContentDescription("SSH 터미널 닫기");
+        btnClose.setTooltipText("SSH 터미널 닫기");
 
-        TextView btnClose = new TextView(this);
-        btnClose.setText("✕ 닫기");
-        btnClose.setTextColor(Color.parseColor("#FF4444"));
-        btnClose.setPadding(dp(10), dp(5), dp(10), dp(5));
+        GradientDrawable closeBackground = new GradientDrawable();
+        closeBackground.setColor(Color.parseColor("#261616"));
+        closeBackground.setStroke(dp(1), Color.parseColor("#884444"));
+        closeBackground.setCornerRadius(dp(10));
+        ViewCompat.setBackgroundTintList(btnClose, null);
+        btnClose.setBackground(new android.graphics.drawable.RippleDrawable(
+                android.content.res.ColorStateList.valueOf(Color.parseColor("#55FF6666")),
+                closeBackground, null));
+
+        LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(dp(52), dp(52));
+        closeParams.setMarginStart(dp(8));
         btnClose.setOnClickListener(v -> finish());
-        header.addView(btnClose);
+        header.addView(btnClose, closeParams);
 
         root.addView(header);
         root.addView(vSpace(10));
@@ -741,6 +756,7 @@ public class SshTerminalActivity extends AppCompatActivity {
                     break;
                 case "DISCONNECTED":
                     isSshConnected = false;
+                    setTmuxMode(false);
                     tvStatusIcon.setText("🔴");
                     if (reconnectOverlay != null) reconnectOverlay.setVisibility(View.VISIBLE);
                     break;
@@ -784,22 +800,11 @@ public class SshTerminalActivity extends AppCompatActivity {
         refreshMacroUI();
     }
 
-    private void checkTmuxState(String cmd) {
-        if (cmd == null) return;
-        String cleanCmd = cmd.trim();
-
-        boolean changed = false;
-        if (cleanCmd.contains("tmux a") || cleanCmd.contains("tmux attach")) {
-            if (!isTmuxMode) { isTmuxMode = true; changed = true; }
-        } else if (cleanCmd.equals(TMUX_DETACH_COMMAND)
-                || cleanCmd.equals(TMUX_CLOSE_LEGACY_COMMAND)
-                || cleanCmd.equals(TMUX_CLOSE_COMMAND.trim())) {
-            if (isTmuxMode) { isTmuxMode = false; changed = true; }
-        }
-
-        if (changed) {
-            runOnUiThread(this::updateModeUI);
-        }
+    // Called on the UI thread so the title, input and macros change together.
+    private void setTmuxMode(boolean enabled) {
+        if (isTmuxMode == enabled) return;
+        isTmuxMode = enabled;
+        updateModeUI();
     }
 
     private void showKeySettingDialog() {
@@ -1497,14 +1502,9 @@ public class SshTerminalActivity extends AppCompatActivity {
         OutputStream stream = outStream;
         int generation = connectionGeneration.get();
         if (stream != null && isConnectionActive(generation)) {
-            checkTmuxState(cmd);
             commandExecutor.execute(() -> {
                 try {
                     if (!isConnectionActive(generation) || outStream != stream) return;
-                    if (scriptAttachesToTmux(cmd, generation) && !isTmuxMode) {
-                        isTmuxMode = true;
-                        runOnUiThread(this::updateModeUI);
-                    }
                     stream.write(cmd.getBytes(StandardCharsets.UTF_8));
                     stream.flush();
                     runOnUiThread(() -> {
@@ -1520,36 +1520,52 @@ public class SshTerminalActivity extends AppCompatActivity {
         }
     }
 
-    private boolean scriptAttachesToTmux(String cmd, int generation) {
-        if (cmd == null || isTmuxMode) return false;
-        Matcher matcher = SHELL_SCRIPT_COMMAND_PATTERN.matcher(cmd.trim());
-        if (!matcher.matches()) return false;
-
-        String scriptPath = matcher.group(1);
-        if (!scriptPath.startsWith("/")) return false;
-
+    private void pollTmuxState() {
+        int generation = connectionGeneration.get();
         Session currentSession = session;
-        if (currentSession == null || !currentSession.isConnected() || !isConnectionActive(generation)) {
-            return false;
+        ChannelShell currentChannel = channel;
+        if (!isSshConnected || !isConnectionActive(generation)
+                || currentSession == null || !currentSession.isConnected()
+                || currentChannel == null || !currentChannel.isConnected()) {
+            return;
         }
 
         ChannelExec inspectChannel = null;
         try {
             inspectChannel = (ChannelExec) currentSession.openChannel("exec");
-            String quotedPath = "'" + scriptPath.replace("'", "'\\''") + "'";
-            inspectChannel.setCommand(
-                    "grep -Eq '^[[:space:]]*(exec[[:space:]]+)?tmux[[:space:]]+(attach|attach-session)([[:space:]]|$)' -- "
-                            + quotedPath);
+            inspectChannel.setCommand(TmuxStateProbe.COMMAND);
+            InputStream input = inspectChannel.getInputStream();
             inspectChannel.connect(3000);
 
-            long deadline = System.currentTimeMillis() + 3000;
-            while (!inspectChannel.isClosed() && System.currentTimeMillis() < deadline) {
+            ByteArrayOutputStream snapshot = new ByteArrayOutputStream();
+            byte[] buffer = new byte[1024];
+            long deadline = android.os.SystemClock.elapsedRealtime() + 3000;
+            while (isConnectionActive(generation)
+                    && android.os.SystemClock.elapsedRealtime() < deadline) {
+                while (input.available() > 0) {
+                    int count = input.read(buffer, 0, Math.min(buffer.length, input.available()));
+                    if (count < 0) break;
+                    snapshot.write(buffer, 0, count);
+                    if (snapshot.size() > 64 * 1024) return;
+                }
+                if (inspectChannel.isClosed() && input.available() == 0) break;
                 Thread.sleep(20);
             }
-            return inspectChannel.isClosed() && inspectChannel.getExitStatus() == 0;
+            if (!inspectChannel.isClosed() || inspectChannel.getExitStatus() != 0) return;
+            Boolean detected = TmuxStateProbe.parse(snapshot.toString(StandardCharsets.UTF_8.name()));
+            if (detected == null) return;
+            runOnUiThread(() -> {
+                if (isConnectionActive(generation) && isSshConnected
+                        && session == currentSession && channel == currentChannel
+                        && currentChannel.isConnected()) {
+                    setTmuxMode(detected);
+                }
+            });
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         } catch (Exception e) {
-            Log.w(TAG, "Unable to inspect script for tmux attach: " + scriptPath, e);
-            return false;
+            // A failed status probe must not interrupt commands or mark SSH disconnected.
+            Log.d(TAG, "Unable to inspect terminal tmux state", e);
         } finally {
             if (inspectChannel != null) inspectChannel.disconnect();
         }
@@ -1786,6 +1802,7 @@ public class SshTerminalActivity extends AppCompatActivity {
         disconnectCurrentConnection();
         connectionExecutor.shutdownNow();
         commandExecutor.shutdownNow();
+        tmuxStateExecutor.shutdownNow();
         super.onDestroy();
     }
 
