@@ -2,7 +2,7 @@ plugins {
     id 'com.android.application'
 }
 
-def appVersionCode = 170
+def appVersionCode = 171
 def appVersionName = String.format(
         Locale.ROOT,
         "%d.%02d",
@@ -44,8 +44,7 @@ tasks.register("prepareEmbeddedSshKey", Sync) {
 
 android {
     namespace = 'com.commafinder'
-
-    compileSdk = 36
+    compileSdk = 37
 
     signingConfigs {
         if (releaseSigningConfigured) {
@@ -109,7 +108,7 @@ androidComponents {
 dependencies {
     implementation 'androidx.appcompat:appcompat:1.8.0'
 
-    implementation 'com.github.mwiede:jsch:2.28.7'
+    implementation 'com.github.mwiede:jsch:2.28.8'
     implementation 'com.google.code.gson:gson:2.14.0'
     testImplementation 'junit:junit:4.13.2'
 }
