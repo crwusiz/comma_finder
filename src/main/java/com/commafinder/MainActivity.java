@@ -874,7 +874,13 @@ public class MainActivity extends AppCompatActivity {
         if (!resumed || foundIp == null) return;
         pendingDeviceOpen = false;
         if (currentPort == 7000) {
-            openBrowser(false);
+            if (!LocalNetworkPermission.isGranted(this)) {
+                startScan(7000);
+                return;
+            }
+            Intent intent = new Intent(this, LocalWebActivity.class);
+            intent.putExtra(LocalWebActivity.EXTRA_IP, foundIp);
+            startActivity(intent);
         } else if (currentPort == 22) {
             if (!LocalNetworkPermission.isGranted(this)) {
                 showLocalNetworkPermissionRequired();

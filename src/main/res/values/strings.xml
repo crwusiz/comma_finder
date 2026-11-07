@@ -8,6 +8,22 @@
     <string name="local_network_permission_message">기기 검색 및 연결에 로컬 네트워크 접근 권한이 필요합니다. 설정 → 앱 → Comma Finder → 권한에서 주변 기기(로컬 네트워크) 접근을 허용한 뒤 다시 검색해 주세요.</string>
     <string name="open_settings">설정 열기</string>
     <string name="choose_browser">접속할 브라우저 선택</string>
-    <string name="found_address_action">발견한 주소로 연결. 웹 주소를 길게 누르면 브라우저를 선택합니다.</string>
-    <string name="browser_connection_help">브라우저에서 접속이 막히면 해당 브라우저의 주변 기기 권한과 HTTPS 전용 연결 설정을 확인하세요. 위 주소를 길게 누르면 다른 브라우저를 선택할 수 있습니다.</string>
+    <string name="found_address_action">발견한 주소로 앱 안에서 연결. 웹 주소를 길게 누르면 외부 브라우저를 선택합니다.</string>
+    <string name="browser_connection_help">앱 안에서 웹페이지에 연결합니다. 위 주소를 길게 누르면 외부 브라우저를 선택할 수 있습니다.</string>
+    <string name="local_web_close">닫기</string>
+    <string name="local_web_browser">브라우저</string>
+    <string name="local_web_loading">연결 중…</string>
+    <string name="local_web_connected">연결됨</string>
+    <string name="local_web_failed">웹페이지 연결 실패</string>
+    <string name="local_web_retry">다시 시도</string>
+    <string name="local_web_invalid_address">올바른 로컬 기기 주소가 아닙니다.</string>
+    <string name="local_web_blocked_address">선택한 기기와 다른 주소로의 자동 이동을 중지했습니다.</string>
+    <string name="local_web_http_pending">HTTP 응답 확인 중…</string>
+    <string name="local_web_http_not_run">실행되지 않음</string>
+    <string name="local_web_error_details">%1$s\n\n%2$s\nHTTP 확인: %3$s\n\n%4$s</string>
+    <string name="local_web_error_help">같은 Wi-Fi 또는 핫스팟에 연결되어 있는지 확인하고 다시 시도해 주세요. 계속 실패하면 아래 오류 내용을 알려 주세요.</string>
+    <string name="local_web_no_browser">외부 브라우저를 찾을 수 없습니다.</string>
+    <string name="local_web_unavailable">웹 표시 기능을 시작할 수 없습니다. Android System WebView를 확인하거나 외부 브라우저로 열어 주세요.</string>
+    <string name="local_web_timeout">15초 안에 페이지 로드를 완료하지 못했습니다.</string>
+    <string name="local_web_download_browser">파일 다운로드를 외부 브라우저에서 엽니다.</string>
 </resources>

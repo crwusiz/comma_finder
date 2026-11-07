@@ -17,6 +17,7 @@
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:testOnly="false"
+        android:usesCleartextTraffic="true"
         android:theme="@style/AppTheme">
 
         <provider
@@ -39,6 +40,11 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name=".LocalWebActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|screenLayout" />
 
         <activity
             android:name=".SshTerminalActivity"
