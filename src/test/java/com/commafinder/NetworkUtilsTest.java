@@ -34,4 +34,12 @@ public class NetworkUtilsTest {
         assertEquals("핫스팟", NetworkUtils.networkLabel("swlan0", "192.168.1.1", ""));
         assertEquals("Wi-Fi - Home", NetworkUtils.networkLabel("wlan0", "192.168.1.2", " - Home"));
     }
+
+    @Test
+    public void private17218LanIsNotExcludedAsVpn() {
+        assertEquals("Wi-Fi - Home", NetworkUtils.networkLabel("wlan0", "172.18.1.2", " - Home"));
+        assertEquals("핫스팟", NetworkUtils.networkLabel("swlan0", "172.18.1.1", ""));
+        assertEquals("VPN", NetworkUtils.networkLabel("tun0", "172.18.1.2", ""));
+        assertEquals("VPN", NetworkUtils.networkLabel("tap0", "172.18.1.2", ""));
+    }
 }

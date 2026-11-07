@@ -2,7 +2,7 @@ plugins {
     id 'com.android.application'
 }
 
-def appVersionCode = 171
+def appVersionCode = 172
 def appVersionName = String.format(
         Locale.ROOT,
         "%d.%02d",
@@ -60,7 +60,7 @@ android {
     defaultConfig {
         applicationId = "com.commafinder"
         minSdk = 29
-        targetSdk = 36
+        targetSdk = 37
         versionCode = appVersionCode
         versionName = appVersionName
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -109,6 +109,6 @@ dependencies {
     implementation 'androidx.appcompat:appcompat:1.8.0'
 
     implementation 'com.github.mwiede:jsch:2.28.8'
-    implementation 'com.google.code.gson:gson:2.14.0'
+    implementation 'com.google.code.gson:gson:2.15.0'
     testImplementation 'junit:junit:4.13.2'
 }

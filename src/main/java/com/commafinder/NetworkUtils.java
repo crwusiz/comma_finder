@@ -48,7 +48,7 @@ final class NetworkUtils {
 
     static String networkLabel(String interfaceName, String ip, String wifiSsid) {
         String name = interfaceName.toLowerCase(Locale.ROOT);
-        if (name.contains("tun") || name.contains("tap") || ip.startsWith("172.18.")) {
+        if (name.contains("tun") || name.contains("tap")) {
             return "VPN";
         }
         if (ip.startsWith("172.20.10.")) return "iPhone 핫스팟";

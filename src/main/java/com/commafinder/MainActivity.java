@@ -2,6 +2,7 @@ package com.commafinder;
 
 import android.Manifest;
 import android.annotation.SuppressLint;
+import android.app.AlertDialog;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageInfo;
@@ -21,6 +22,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.Settings;
 import android.view.View;
 import android.view.Gravity;
 import android.widget.FrameLayout;
@@ -59,6 +61,7 @@ import java.util.concurrent.Future;
 @SuppressLint({"SetTextI18n", "SpellCheckingInspection"})
 public class MainActivity extends AppCompatActivity {
 
+    static final String ACTION_SCAN_WEB = "com.commafinder.action.SCAN_WEB";
     private static final int SOCKET_TIMEOUT_MS = 800;
     private static final int THREAD_POOL = 50;
     private static final String COLOR_BG = "#0B0E0D";
@@ -96,20 +99,60 @@ public class MainActivity extends AppCompatActivity {
     private int scanGeneration;
     private volatile boolean scanning = false;
     private volatile boolean destroyed = false;
+    private boolean resumed;
+    private int pendingScanPort;
+    private boolean locationRequestInFlight;
+    private boolean localNetworkRequestInFlight;
+    private boolean waitingForLocalNetworkSettings;
+    private boolean pendingDeviceOpen;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
-    private final ActivityResultLauncher<String[]> locationPermissionLauncher =
-            registerForActivityResult(new ActivityResultContracts.RequestMultiplePermissions(), result -> {
-                if (Boolean.TRUE.equals(result.get(Manifest.permission.ACCESS_FINE_LOCATION))) {
+    private final ActivityResultLauncher<String> localNetworkPermissionLauncher =
+            registerForActivityResult(new ActivityResultContracts.RequestPermission(), granted -> {
+                localNetworkRequestInFlight = false;
+                if (granted && LocalNetworkPermission.isGranted(this)) {
                     detectIP();
                 } else {
+                    int requestedPort = pendingScanPort;
+                    pendingScanPort = 0;
+                    showLocalNetworkPermissionRequired();
+                    new AlertDialog.Builder(this)
+                            .setTitle(R.string.local_network_permission_title)
+                            .setMessage(R.string.local_network_permission_message)
+                            .setPositiveButton(R.string.open_settings, (dialog, which) -> {
+                                pendingScanPort = requestedPort;
+                                waitingForLocalNetworkSettings = true;
+                                startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                        Uri.parse("package:" + getPackageName())));
+                            })
+                            .setNegativeButton(android.R.string.cancel, null)
+                            .show();
+                }
+            });
+    private final ActivityResultLauncher<String[]> locationPermissionLauncher =
+            registerForActivityResult(new ActivityResultContracts.RequestMultiplePermissions(), result -> {
+                locationRequestInFlight = false;
+                if (!Boolean.TRUE.equals(result.get(Manifest.permission.ACCESS_FINE_LOCATION))) {
                     appendLog("위치 권한이 거부되어 Wi-Fi 이름(SSID)을 가져올 수 없습니다.", "#AAAAAA");
                 }
+                detectIP();
             });
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        if (savedInstanceState != null) {
+            pendingScanPort = savedInstanceState.getInt("pendingScanPort");
+            locationRequestInFlight = savedInstanceState.getBoolean("locationRequestInFlight");
+            localNetworkRequestInFlight = savedInstanceState.getBoolean("localNetworkRequestInFlight");
+            waitingForLocalNetworkSettings = savedInstanceState.getBoolean("waitingForLocalNetworkSettings");
+            pendingDeviceOpen = savedInstanceState.getBoolean("pendingDeviceOpen");
+            foundIp = savedInstanceState.getString("foundIp");
+            currentPort = savedInstanceState.getInt("currentPort", 7000);
+        } else {
+            consumeScanIntent(getIntent());
+        }
         buildUI();
+        if (foundIp != null) showFoundAddress();
 
         appUpdater = new AppUpdater(this, new AppUpdater.Listener() {
             @Override
@@ -134,7 +177,10 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+        // Widget scans do not need the optional SSID/location prompt.
+        if (savedInstanceState == null && pendingScanPort == 0
+                && ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            locationRequestInFlight = true;
             locationPermissionLauncher.launch(new String[]{
                     Manifest.permission.ACCESS_COARSE_LOCATION,
                     Manifest.permission.ACCESS_FINE_LOCATION
@@ -145,15 +191,59 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
+        resumed = true;
+        if (waitingForLocalNetworkSettings) {
+            waitingForLocalNetworkSettings = false;
+            if (!LocalNetworkPermission.isGranted(this)) {
+                pendingScanPort = 0;
+                showLocalNetworkPermissionRequired();
+            }
+        }
+        if (scanning && !LocalNetworkPermission.isGranted(this)) {
+            cancelScan(false);
+            showLocalNetworkPermissionRequired();
+        }
         detectIP();
         appUpdater.resume();
         checkForUpdates();
+        if (pendingDeviceOpen) mainHandler.post(this::openPendingDevice);
     }
 
     @Override
     protected void onPause() {
+        resumed = false;
         appUpdater.pause();
         super.onPause();
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        if (consumeScanIntent(intent)) {
+            cancelScan(true);
+            detectIP();
+        }
+    }
+
+    private boolean consumeScanIntent(Intent intent) {
+        if (intent == null || !ACTION_SCAN_WEB.equals(intent.getAction())) return false;
+        intent.setAction(null);
+        pendingScanPort = 7000;
+        pendingDeviceOpen = false;
+        return true;
+    }
+
+    @Override
+    protected void onSaveInstanceState(@NonNull Bundle outState) {
+        outState.putInt("pendingScanPort", scanning ? currentPort : pendingScanPort);
+        outState.putBoolean("locationRequestInFlight", locationRequestInFlight);
+        outState.putBoolean("localNetworkRequestInFlight", localNetworkRequestInFlight);
+        outState.putBoolean("waitingForLocalNetworkSettings", waitingForLocalNetworkSettings);
+        outState.putBoolean("pendingDeviceOpen", pendingDeviceOpen);
+        outState.putString("foundIp", foundIp);
+        outState.putInt("currentPort", currentPort);
+        super.onSaveInstanceState(outState);
     }
 
     @Override
@@ -303,6 +393,13 @@ public class MainActivity extends AppCompatActivity {
         tvFound.setGravity(Gravity.CENTER);
         tvFound.setPadding(dp(12), dp(11), dp(12), dp(11));
         tvFound.setBackground(roundedBackground(COLOR_PRIMARY_DARK, null, 0, 10));
+        tvFound.setOnClickListener(v -> openFoundDevice());
+        tvFound.setOnLongClickListener(v -> {
+            if (foundIp == null || currentPort != 7000) return false;
+            openBrowser(true);
+            return true;
+        });
+        tvFound.setContentDescription(getString(R.string.found_address_action));
         tvFound.setVisibility(View.GONE);
 
         progressBar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
@@ -486,7 +583,10 @@ public class MainActivity extends AppCompatActivity {
 
                 String newText = newTextBuilder.toString().trim();
 
-                if (lastDetectedIpString.equals(newText) && !mySubnets.isEmpty()) return;
+                if (lastDetectedIpString.equals(newText) && !mySubnets.isEmpty()) {
+                    continuePendingScan();
+                    return;
+                }
 
                 String oldText = lastDetectedIpString;
                 lastDetectedIpString = newText;
@@ -541,6 +641,7 @@ public class MainActivity extends AppCompatActivity {
                     ipListContainer.addView(makeText("IP 감지 실패", 15, COLOR_ERROR, true));
                     appendLog("IP 감지 실패 — Wi-Fi 연결 확인", "#FF6B35");
                 }
+                continuePendingScan();
             });
         });
     }
@@ -599,8 +700,23 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void startScan(int targetPort) {
+        pendingScanPort = targetPort;
+        continuePendingScan();
+    }
+
+    private void continuePendingScan() {
+        if (!resumed || pendingScanPort == 0 || scanning || locationRequestInFlight
+                || localNetworkRequestInFlight || waitingForLocalNetworkSettings) return;
+        if (!LocalNetworkPermission.isGranted(this)) {
+            localNetworkRequestInFlight = true;
+            localNetworkPermissionLauncher.launch(LocalNetworkPermission.PERMISSION);
+            return;
+        }
+        int targetPort = pendingScanPort;
+        pendingScanPort = 0;
         if (mySubnets.isEmpty()) { appendLog("IP 대역을 먼저 감지해야 합니다", "#FF6B35"); return; }
         scanning = true;
+        pendingDeviceOpen = false;
         foundIp = null;
         currentPort = targetPort;
         int generation = ++scanGeneration;
@@ -634,6 +750,14 @@ public class MainActivity extends AppCompatActivity {
         int total = subnets.size() * NetworkUtils.LAST_HOST;
         for (int attempt = 1; attempt <= 2; attempt++) {
             if (!isScanActive(generation)) return;
+            if (!LocalNetworkPermission.isGranted(this)) {
+                postForScan(generation, () -> {
+                    scanning = false;
+                    activeScanner = null;
+                    showLocalNetworkPermissionRequired();
+                });
+                return;
+            }
             if (attempt > 1) {
                 postForScan(generation, () -> {
                     progressBar.setProgress(0);
@@ -647,6 +771,14 @@ public class MainActivity extends AppCompatActivity {
                 }
             });
 
+            if (!LocalNetworkPermission.isGranted(this)) {
+                postForScan(generation, () -> {
+                    scanning = false;
+                    activeScanner = null;
+                    showLocalNetworkPermissionRequired();
+                });
+                return;
+            }
             if (result.status() == PortScanner.Status.FOUND) {
                 postForScan(generation, () -> {
                     scanning = false;
@@ -718,22 +850,46 @@ public class MainActivity extends AppCompatActivity {
     private void onFound(String ip) {
         foundIp = ip;
         setStatus("발견 완료", COLOR_PRIMARY, COLOR_PRIMARY_DARK);
-        tvFound.setText(String.format(Locale.getDefault(), "%s:%d", ip, currentPort));
-        tvFound.setVisibility(View.VISIBLE);
+        showFoundAddress();
         progressBar.setProgress(progressBar.getMax());
 
         resetScanButtons();
         appendLog(String.format(Locale.getDefault(), "기기 발견! → %s:%d", ip, currentPort), "#00E676");
+        if (currentPort == 7000) appendLog(getString(R.string.browser_connection_help), COLOR_TEXT_SECONDARY);
+        pendingDeviceOpen = true;
+        mainHandler.postDelayed(this::openPendingDevice, 800);
+    }
 
+    private void showFoundAddress() {
+        tvFound.setText(String.format(Locale.getDefault(), "%s:%d", foundIp, currentPort));
+        tvFound.setVisibility(View.VISIBLE);
+    }
+
+    private void openPendingDevice() {
+        if (pendingDeviceOpen) openFoundDevice();
+    }
+
+    private void openFoundDevice() {
+        // A scan may finish while the user is in another app. Open on return.
+        if (!resumed || foundIp == null) return;
+        pendingDeviceOpen = false;
         if (currentPort == 7000) {
-            mainHandler.postDelayed(this::openChrome, 800);
+            openBrowser(false);
         } else if (currentPort == 22) {
-            mainHandler.postDelayed(() -> {
-                Intent intent = new Intent(MainActivity.this, SshTerminalActivity.class);
-                intent.putExtra("IP", ip);
-                startActivity(intent);
-            }, 800);
+            if (!LocalNetworkPermission.isGranted(this)) {
+                showLocalNetworkPermissionRequired();
+                return;
+            }
+            Intent intent = new Intent(MainActivity.this, SshTerminalActivity.class);
+            intent.putExtra("IP", foundIp);
+            startActivity(intent);
         }
+    }
+
+    private void showLocalNetworkPermissionRequired() {
+        resetScanButtons();
+        setStatus(getString(R.string.local_network_permission_title), COLOR_ERROR, "#3B201D");
+        appendLog(getString(R.string.local_network_permission_message), COLOR_ERROR);
     }
 
     private void onNotFound() {
@@ -749,19 +905,15 @@ public class MainActivity extends AppCompatActivity {
         appendLog("스캔 중단됨", "#DDDDDD");
     }
 
-    private void openChrome() {
-        if (foundIp == null) return;
+    private void openBrowser(boolean chooseBrowser) {
+        if (!resumed || foundIp == null) return;
         String url = "http://"+foundIp+":"+currentPort+"/";
         try {
-            Intent i = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
-            i.setPackage("com.android.chrome");
-            startActivity(i);
+            Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+            startActivity(chooseBrowser
+                    ? Intent.createChooser(intent, getString(R.string.choose_browser)) : intent);
         } catch (Exception e) {
-            try {
-                startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
-            } catch (Exception noBrowser) {
-                appendLog("웹 브라우저를 찾을 수 없습니다", "#FF6B35");
-            }
+            appendLog("웹 브라우저를 찾을 수 없습니다", "#FF6B35");
         }
     }
 

@@ -1293,6 +1293,11 @@ public class SshTerminalActivity extends AppCompatActivity {
     }
 
     private void connectSSH() {
+        if (!LocalNetworkPermission.isGranted(this)) {
+            updateConnectionStatus("DISCONNECTED");
+            printConsole(getString(R.string.local_network_permission_message) + "\n");
+            return;
+        }
         final int generation = connectionGeneration.incrementAndGet();
         updateConnectionStatus("CONNECTING");
         printConsole("SSH 키 준비 중...\n");
