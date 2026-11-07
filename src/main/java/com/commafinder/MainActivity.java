@@ -92,6 +92,7 @@ public class MainActivity extends AppCompatActivity {
     private Future<?> ipDetectionTask;
     private Future<?> updateCheckTask;
     private AppUpdater appUpdater;
+    private ExternalBrowserLauncher externalBrowserLauncher;
     private final ActivityResultLauncher<Intent> installPermissionLauncher =
             registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
                 if (appUpdater != null) appUpdater.onPermissionResult();
@@ -140,6 +141,8 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        externalBrowserLauncher = new ExternalBrowserLauncher(this);
+        if (savedInstanceState != null) externalBrowserLauncher.restoreState(savedInstanceState);
         if (savedInstanceState != null) {
             pendingScanPort = savedInstanceState.getInt("pendingScanPort");
             locationRequestInFlight = savedInstanceState.getBoolean("locationRequestInFlight");
@@ -210,6 +213,7 @@ public class MainActivity extends AppCompatActivity {
         detectIP();
         appUpdater.resume();
         checkForUpdates();
+        externalBrowserLauncher.onResume();
     }
 
     @Override
@@ -244,6 +248,7 @@ public class MainActivity extends AppCompatActivity {
         outState.putBoolean("waitingForLocalNetworkSettings", waitingForLocalNetworkSettings);
         outState.putStringArrayList("foundIps", new ArrayList<>(foundIps));
         outState.putInt("currentPort", currentPort);
+        externalBrowserLauncher.saveState(outState);
         super.onSaveInstanceState(outState);
     }
 
@@ -251,6 +256,7 @@ public class MainActivity extends AppCompatActivity {
     protected void onDestroy() {
         destroyed = true;
         if (appUpdater != null) appUpdater.destroy();
+        if (externalBrowserLauncher != null) externalBrowserLauncher.destroy();
         cancelScan(false);
         cancelTask(ipDetectionTask);
         cancelTask(updateCheckTask);
@@ -898,13 +904,7 @@ public class MainActivity extends AppCompatActivity {
     private void openBrowser(String ip, int port) {
         if (!resumed || scanning || port != currentPort || !foundIps.contains(ip)) return;
         String url = "http://" + ip + ":" + port + "/";
-        try {
-            Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
-            appendLog(getString(R.string.external_browser_notice), COLOR_TEXT_SECONDARY);
-            startActivity(Intent.createChooser(intent, getString(R.string.choose_browser)));
-        } catch (Exception e) {
-            appendLog("웹 브라우저를 찾을 수 없습니다", "#FF6B35");
-        }
+        externalBrowserLauncher.open(url);
     }
 
     private void appendLog(String msg, String color) {

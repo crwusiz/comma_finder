@@ -47,6 +47,7 @@ public class LocalWebActivity extends AppCompatActivity {
     private Future<?> probeTask;
     private int probeGeneration;
     private LocalWebTarget target;
+    private ExternalBrowserLauncher externalBrowserLauncher;
     private WebView webView;
     private FrameLayout content;
     private ScrollView errorPanel;
@@ -90,6 +91,8 @@ public class LocalWebActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        externalBrowserLauncher = new ExternalBrowserLauncher(this);
+        if (savedInstanceState != null) externalBrowserLauncher.restoreState(savedInstanceState);
         try {
             target = LocalWebTarget.fromIp(getIntent().getStringExtra(EXTRA_IP));
         } catch (IllegalArgumentException invalidAddress) {
@@ -356,13 +359,7 @@ public class LocalWebActivity extends AppCompatActivity {
     }
 
     private void openExternal(String url) {
-        if (!LocalWebTarget.isExternalWebUrl(url)) return;
-        try {
-            startActivity(Intent.createChooser(new Intent(Intent.ACTION_VIEW, Uri.parse(url)),
-                    getString(R.string.choose_browser)));
-        } catch (RuntimeException noBrowser) {
-            Toast.makeText(this, R.string.local_web_no_browser, Toast.LENGTH_LONG).show();
-        }
+        externalBrowserLauncher.open(url);
     }
 
     @Override
@@ -378,6 +375,7 @@ public class LocalWebActivity extends AppCompatActivity {
             if (webView != null) webView.onResume();
             if (!loadStarted) loadPage();
         }
+        externalBrowserLauncher.onResume();
     }
 
     @Override
@@ -390,12 +388,14 @@ public class LocalWebActivity extends AppCompatActivity {
     @Override
     protected void onSaveInstanceState(@NonNull Bundle outState) {
         outState.putString("pageUrl", pageUrl);
+        externalBrowserLauncher.saveState(outState);
         super.onSaveInstanceState(outState);
     }
 
     @Override
     protected void onDestroy() {
         destroyed = true;
+        if (externalBrowserLauncher != null) externalBrowserLauncher.destroy();
         probeGeneration++;
         if (probeTask != null) probeTask.cancel(true);
         probeExecutor.shutdownNow();

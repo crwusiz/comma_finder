@@ -8,6 +8,10 @@
     <string name="local_network_permission_message">기기 검색 및 연결에 로컬 네트워크 접근 권한이 필요합니다. 설정 → 앱 → Comma Finder → 권한에서 주변 기기(로컬 네트워크) 접근을 허용한 뒤 다시 검색해 주세요.</string>
     <string name="open_settings">설정 열기</string>
     <string name="choose_browser">접속할 브라우저 선택</string>
+    <string name="browser_local_network_permission_title">브라우저의 주변 기기 권한 필요</string>
+    <string name="browser_local_network_permission_message">%1$s에 로컬 네트워크 접근 권한이 없어 이 IP에 연결할 수 없습니다. Comma Finder에 허용한 권한은 브라우저에 적용되지 않습니다.\n\n설정에서 %1$s → 권한 → 주변 기기를 허용해 주세요. 돌아오면 같은 주소로 접속합니다. 권한 항목이 없으면 브라우저를 업데이트하거나 다른 브라우저를 선택해 주세요.</string>
+    <string name="browser_local_network_still_denied">%1$s의 주변 기기 권한이 아직 허용되지 않았습니다. 브라우저 설정에서 허용 후 다시 시도해 주세요.</string>
+    <string name="browser_settings_unavailable">브라우저 설정을 열 수 없습니다. 기기 설정 → 앱에서 해당 브라우저의 주변 기기 권한을 허용해 주세요.</string>
     <string name="found_address_action">%1$s:%2$d 앱에서 연결. 길게 누르면 외부 브라우저를 선택합니다.</string>
     <string name="browser_connection_help">목록에서 IP를 선택하면 앱 안에서 연결합니다. IP를 길게 누르면 외부 브라우저를 선택할 수 있습니다.</string>
     <string name="scan_selection_guide">현재 네트워크를 모두 검색한 뒤 연결할 IP를 목록에서 선택하세요.</string>
