@@ -1,5 +1,6 @@
 package com.commafinder;
 
+import android.app.AppOpsManager;
 import android.content.ActivityNotFoundException;
 import android.content.ComponentName;
 import android.content.Intent;
@@ -11,6 +12,7 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
+import android.util.Log;
 import android.widget.Toast;
 
 import androidx.appcompat.app.AlertDialog;
@@ -148,10 +150,33 @@ final class ExternalBrowserLauncher {
         try {
             ApplicationInfo application = activity.getPackageManager().getApplicationInfo(
                     browser.component.getPackageName(), 0);
-            // Check the effective UID permission even for browsers targeting older SDKs:
-            // Android 17's local-network compatibility protection can apply to them too.
-            return activity.checkPermission(LOCAL_NETWORK_PERMISSION, -1, application.uid)
+            String packageName = browser.component.getPackageName();
+            // A compatibility-revoked permission can still report GRANTED while
+            // the UID app-op blocks all local traffic, including for older targets.
+            boolean granted = activity.checkPermission(
+                    LOCAL_NETWORK_PERMISSION, -1, application.uid)
                     == PackageManager.PERMISSION_GRANTED;
+            Integer mode = null;
+            try {
+                AppOpsManager appOps = activity.getSystemService(AppOpsManager.class);
+                String operation = AppOpsManager.permissionToOp(LOCAL_NETWORK_PERMISSION);
+                if (appOps != null && operation != null) {
+                    // Include UID overrides, preserving foreground-only access
+                    // while the selected browser has not been launched yet.
+                    mode = appOps.checkOpRawNoThrow(
+                            operation, application.uid, packageName, null);
+                }
+            } catch (SecurityException | IllegalArgumentException unavailable) {
+                // Some devices restrict inspecting another app's operations.
+                // An unavailable check is not evidence that access is denied.
+            }
+            if ((activity.getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0) {
+                Log.d("BrowserLocalNetworkAccess", "package=" + packageName
+                        + " uid=" + application.uid + " granted=" + granted
+                        + " mode=" + (mode == null ? "unknown" : mode));
+            }
+            return granted && (mode == null || (mode != AppOpsManager.MODE_IGNORED
+                    && mode != AppOpsManager.MODE_ERRORED));
         } catch (PackageManager.NameNotFoundException missingBrowser) {
             return false;
         }

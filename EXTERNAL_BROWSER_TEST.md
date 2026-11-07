@@ -1,5 +1,7 @@
 # 외부 브라우저 연결 테스트 — v1.75
 
+이후 One UI 9 실기기에서 재현한 Chrome 권한 차단 원인과 v1.76 수정 검증은 [삼성 실기기 테스트 기록](SAMSUNG_CHROME_TEST.md)에 정리했습니다.
+
 2026-11-07, 사용자가 실행한 `Pixel_10a` 가상기기(`emulator-5554`, Android 17 / API 37)에서 검사했습니다. Chrome은 `145.0.7632.218`, target SDK 36이며 시작 시 `ACCESS_LOCAL_NETWORK`가 이미 허용되어 있었습니다. Comma Finder v1.75 디버그 APK를 설치해 검사했습니다.
 
 | 검사 | 결과 |
