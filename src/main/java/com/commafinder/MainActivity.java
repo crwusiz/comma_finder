@@ -81,10 +81,11 @@ public class MainActivity extends AppCompatActivity {
     private ScrollView logScroll;
 
     private LinearLayout ipListContainer;
+    private LinearLayout foundDevicesContainer;
     private String lastDetectedIpString = "";
 
     private final List<String> mySubnets = new ArrayList<>();
-    private String foundIp = null;
+    private final List<String> foundIps = new ArrayList<>();
     private int currentPort = 7000;
     private final ExecutorService backgroundExecutor = Executors.newCachedThreadPool();
     private Future<?> scanTask;
@@ -104,7 +105,6 @@ public class MainActivity extends AppCompatActivity {
     private boolean locationRequestInFlight;
     private boolean localNetworkRequestInFlight;
     private boolean waitingForLocalNetworkSettings;
-    private boolean pendingDeviceOpen;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final ActivityResultLauncher<String> localNetworkPermissionLauncher =
             registerForActivityResult(new ActivityResultContracts.RequestPermission(), granted -> {
@@ -145,14 +145,18 @@ public class MainActivity extends AppCompatActivity {
             locationRequestInFlight = savedInstanceState.getBoolean("locationRequestInFlight");
             localNetworkRequestInFlight = savedInstanceState.getBoolean("localNetworkRequestInFlight");
             waitingForLocalNetworkSettings = savedInstanceState.getBoolean("waitingForLocalNetworkSettings");
-            pendingDeviceOpen = savedInstanceState.getBoolean("pendingDeviceOpen");
-            foundIp = savedInstanceState.getString("foundIp");
+            ArrayList<String> savedIps = savedInstanceState.getStringArrayList("foundIps");
+            if (savedIps != null) foundIps.addAll(savedIps);
             currentPort = savedInstanceState.getInt("currentPort", 7000);
         } else {
             consumeScanIntent(getIntent());
         }
         buildUI();
-        if (foundIp != null) showFoundAddress();
+        if (!foundIps.isEmpty()) {
+            renderFoundDevices();
+            setStatus(getString(R.string.scan_result_count, foundIps.size()), COLOR_PRIMARY, COLOR_PRIMARY_DARK);
+            progressBar.setProgress(progressBar.getMax());
+        }
 
         appUpdater = new AppUpdater(this, new AppUpdater.Listener() {
             @Override
@@ -206,7 +210,6 @@ public class MainActivity extends AppCompatActivity {
         detectIP();
         appUpdater.resume();
         checkForUpdates();
-        if (pendingDeviceOpen) mainHandler.post(this::openPendingDevice);
     }
 
     @Override
@@ -230,7 +233,6 @@ public class MainActivity extends AppCompatActivity {
         if (intent == null || !ACTION_SCAN_WEB.equals(intent.getAction())) return false;
         intent.setAction(null);
         pendingScanPort = 7000;
-        pendingDeviceOpen = false;
         return true;
     }
 
@@ -240,8 +242,7 @@ public class MainActivity extends AppCompatActivity {
         outState.putBoolean("locationRequestInFlight", locationRequestInFlight);
         outState.putBoolean("localNetworkRequestInFlight", localNetworkRequestInFlight);
         outState.putBoolean("waitingForLocalNetworkSettings", waitingForLocalNetworkSettings);
-        outState.putBoolean("pendingDeviceOpen", pendingDeviceOpen);
-        outState.putString("foundIp", foundIp);
+        outState.putStringArrayList("foundIps", new ArrayList<>(foundIps));
         outState.putInt("currentPort", currentPort);
         super.onSaveInstanceState(outState);
     }
@@ -263,8 +264,6 @@ public class MainActivity extends AppCompatActivity {
         super.onConfigurationChanged(newConfig);
         List<String> savedSubnets = new ArrayList<>(mySubnets);
         String savedLog   = tvLog    != null ? tvLog.getText().toString()     : null;
-        String savedFound = tvFound  != null ? tvFound.getText().toString()   : null;
-        boolean foundVis  = tvFound  != null && tvFound.getVisibility() == View.VISIBLE;
         String savedStatus = tvStatus != null ? tvStatus.getText().toString() : null;
         int savedStatusColor = tvStatus != null ? tvStatus.getCurrentTextColor() : Color.WHITE;
         int savedProgress = progressBar != null ? progressBar.getProgress() : 0;
@@ -275,10 +274,7 @@ public class MainActivity extends AppCompatActivity {
         mySubnets.addAll(savedSubnets);
 
         if (savedLog != null) tvLog.setText(savedLog);
-        if (savedFound != null && foundVis) {
-            tvFound.setText(savedFound);
-            tvFound.setVisibility(View.VISIBLE);
-        }
+        renderFoundDevices();
         if (savedStatus != null) {
             tvStatus.setText(savedStatus);
             tvStatus.setTextColor(savedStatusColor);
@@ -384,23 +380,18 @@ public class MainActivity extends AppCompatActivity {
         statusCard.addView(statusHeader);
 
         TextView statusGuide = makeText(
-                "연결 방식을 선택하면 현재 네트워크를 검색합니다.",
+                getString(R.string.scan_selection_guide),
                 13, COLOR_TEXT_SECONDARY, false);
         statusGuide.setPadding(0, dp(12), 0, dp(12));
         statusCard.addView(statusGuide);
 
-        tvFound  = makeText("", 18, COLOR_PRIMARY, true);
-        tvFound.setGravity(Gravity.CENTER);
+        tvFound  = makeText("", 15, COLOR_PRIMARY, true);
         tvFound.setPadding(dp(12), dp(11), dp(12), dp(11));
         tvFound.setBackground(roundedBackground(COLOR_PRIMARY_DARK, null, 0, 10));
-        tvFound.setOnClickListener(v -> openFoundDevice());
-        tvFound.setOnLongClickListener(v -> {
-            if (foundIp == null || currentPort != 7000) return false;
-            openBrowser(true);
-            return true;
-        });
-        tvFound.setContentDescription(getString(R.string.found_address_action));
         tvFound.setVisibility(View.GONE);
+        foundDevicesContainer = new LinearLayout(this);
+        foundDevicesContainer.setOrientation(LinearLayout.VERTICAL);
+        foundDevicesContainer.setVisibility(View.GONE);
 
         progressBar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
         progressBar.setMax(254);
@@ -412,6 +403,7 @@ public class MainActivity extends AppCompatActivity {
         statusCard.addView(progressBar);
         statusCard.addView(vSpace(12));
         statusCard.addView(tvFound);
+        statusCard.addView(foundDevicesContainer);
         content.addView(statusCard);
 
         content.addView(vSpace(22));
@@ -716,20 +708,13 @@ public class MainActivity extends AppCompatActivity {
         pendingScanPort = 0;
         if (mySubnets.isEmpty()) { appendLog("IP 대역을 먼저 감지해야 합니다", "#FF6B35"); return; }
         scanning = true;
-        pendingDeviceOpen = false;
-        foundIp = null;
+        foundIps.clear();
+        renderFoundDevices();
         currentPort = targetPort;
         int generation = ++scanGeneration;
         List<String> subnets = new ArrayList<>(mySubnets);
 
         applyScanningButtons(targetPort);
-        if (targetPort == 7000) {
-            appendLog("7000 포트가 개방된 comma 기기를 찾으면 웹페이지를 자동으로 오픈합니다", "#AAAAAA");
-        } else {
-            appendLog("22 포트가 개방된 comma 기기를 찾으면 Private Key를 이용해 SSH에 접속합니다", "#AAAAAA");
-        }
-
-        tvFound.setVisibility(View.GONE);
 
         final int total = subnets.size() * NetworkUtils.LAST_HOST;
         progressBar.setMax(total);
@@ -737,6 +722,7 @@ public class MainActivity extends AppCompatActivity {
 
         setStatus("검색 중 · " + targetPort, COLOR_INFO, "#142633");
         tvLog.setText("");
+        appendLog(getString(R.string.scan_selection_guide), COLOR_TEXT_SECONDARY);
 
         for (String s : subnets)
             appendLog(String.format(Locale.getDefault(), "스캔: %s.1~254 (포트 %d)", s, currentPort), "#4FC3F7");
@@ -748,52 +734,29 @@ public class MainActivity extends AppCompatActivity {
 
     private void runScan(PortScanner scanner, List<String> subnets, int port, int generation) {
         int total = subnets.size() * NetworkUtils.LAST_HOST;
-        for (int attempt = 1; attempt <= 2; attempt++) {
-            if (!isScanActive(generation)) return;
-            if (!LocalNetworkPermission.isGranted(this)) {
-                postForScan(generation, () -> {
-                    scanning = false;
-                    activeScanner = null;
-                    showLocalNetworkPermissionRequired();
-                });
-                return;
-            }
-            if (attempt > 1) {
-                postForScan(generation, () -> {
-                    progressBar.setProgress(0);
-                    appendLog("1차 스캔 미발견. 2차 정밀 스캔 재시도 중...", "#FFCA28");
-                });
-            }
-
-            PortScanner.Result result = scanner.scan(subnets, port, completed -> {
-                if (completed % 5 == 0 || completed == total) {
-                    postForScan(generation, () -> progressBar.setProgress(completed));
-                }
+        if (!isScanActive(generation)) return;
+        if (!LocalNetworkPermission.isGranted(this)) {
+            postForScan(generation, () -> {
+                scanning = false;
+                activeScanner = null;
+                showLocalNetworkPermissionRequired();
             });
-
-            if (!LocalNetworkPermission.isGranted(this)) {
-                postForScan(generation, () -> {
-                    scanning = false;
-                    activeScanner = null;
-                    showLocalNetworkPermissionRequired();
-                });
-                return;
-            }
-            if (result.status() == PortScanner.Status.FOUND) {
-                postForScan(generation, () -> {
-                    scanning = false;
-                    activeScanner = null;
-                    onFound(result.ip());
-                });
-                return;
-            }
-            if (result.status() == PortScanner.Status.CANCELLED) return;
+            return;
         }
+
+        PortScanner.Result result = scanner.scan(subnets, port, completed -> {
+            if (completed % 5 == 0 || completed == total) {
+                postForScan(generation, () -> progressBar.setProgress(completed));
+            }
+        });
 
         postForScan(generation, () -> {
             scanning = false;
             activeScanner = null;
-            onNotFound();
+            if (!LocalNetworkPermission.isGranted(this)) showLocalNetworkPermissionRequired();
+            else if (result.status() == PortScanner.Status.FOUND) onFound(result.ips());
+            else if (result.status() == PortScanner.Status.CANCELLED) onStopped();
+            else onNotFound();
         });
     }
 
@@ -847,47 +810,68 @@ public class MainActivity extends AppCompatActivity {
         setButtonGradient(btnScan22, "#183548", "#102431", "#3F789A", COLOR_TEXT);
     }
 
-    private void onFound(String ip) {
-        foundIp = ip;
-        setStatus("발견 완료", COLOR_PRIMARY, COLOR_PRIMARY_DARK);
-        showFoundAddress();
+    private void onFound(List<String> ips) {
+        foundIps.clear();
+        foundIps.addAll(ips);
+        setStatus(getString(R.string.scan_result_count, foundIps.size()), COLOR_PRIMARY, COLOR_PRIMARY_DARK);
+        renderFoundDevices();
         progressBar.setProgress(progressBar.getMax());
-
         resetScanButtons();
-        appendLog(String.format(Locale.getDefault(), "기기 발견! → %s:%d", ip, currentPort), "#00E676");
+        appendLog(getString(R.string.scan_results_summary, foundIps.size(), currentPort), COLOR_PRIMARY);
+        for (String ip : foundIps) appendLog(ip + ":" + currentPort, COLOR_INFO);
         if (currentPort == 7000) appendLog(getString(R.string.browser_connection_help), COLOR_TEXT_SECONDARY);
-        pendingDeviceOpen = true;
-        mainHandler.postDelayed(this::openPendingDevice, 800);
     }
 
-    private void showFoundAddress() {
-        tvFound.setText(String.format(Locale.getDefault(), "%s:%d", foundIp, currentPort));
+    private void renderFoundDevices() {
+        foundDevicesContainer.removeAllViews();
+        if (foundIps.isEmpty()) {
+            tvFound.setVisibility(View.GONE);
+            foundDevicesContainer.setVisibility(View.GONE);
+            return;
+        }
+        final int port = currentPort;
+        tvFound.setText(getString(R.string.scan_results_summary, foundIps.size(), port));
         tvFound.setVisibility(View.VISIBLE);
-    }
-
-    private void openPendingDevice() {
-        if (pendingDeviceOpen) openFoundDevice();
-    }
-
-    private void openFoundDevice() {
-        // A scan may finish while the user is in another app. Open on return.
-        if (!resumed || foundIp == null) return;
-        pendingDeviceOpen = false;
-        if (currentPort == 7000) {
-            if (!LocalNetworkPermission.isGranted(this)) {
-                startScan(7000);
-                return;
+        foundDevicesContainer.setVisibility(View.VISIBLE);
+        for (String ip : foundIps) {
+            String action = getString(port == 7000 ? R.string.scan_connect_web : R.string.scan_connect_ssh);
+            TextView row = makeButton(ip + ":" + port + "\n" + action, COLOR_SURFACE_RAISED, COLOR_TEXT);
+            row.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
+            row.setPadding(dp(14), dp(10), dp(14), dp(10));
+            row.setMinHeight(dp(60));
+            row.setBackground(roundedBackground(COLOR_SURFACE_RAISED, COLOR_BORDER, 1, 10));
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
+            params.topMargin = dp(8);
+            row.setLayoutParams(params);
+            row.setOnClickListener(v -> openFoundDevice(ip, port));
+            if (port == 7000) {
+                row.setOnLongClickListener(v -> {
+                    openBrowser(ip, port);
+                    return true;
+                });
+                row.setContentDescription(getString(R.string.found_address_action, ip, port));
             }
+            foundDevicesContainer.addView(row);
+        }
+    }
+
+    private void openFoundDevice(String ip, int port) {
+        if (!resumed || scanning || port != currentPort || !foundIps.contains(ip)) return;
+        if (!LocalNetworkPermission.isGranted(this)) {
+            showLocalNetworkPermissionRequired();
+            if (!localNetworkRequestInFlight && !locationRequestInFlight) {
+                localNetworkRequestInFlight = true;
+                localNetworkPermissionLauncher.launch(LocalNetworkPermission.PERMISSION);
+            }
+            return;
+        }
+        if (port == 7000) {
             Intent intent = new Intent(this, LocalWebActivity.class);
-            intent.putExtra(LocalWebActivity.EXTRA_IP, foundIp);
+            intent.putExtra(LocalWebActivity.EXTRA_IP, ip);
             startActivity(intent);
-        } else if (currentPort == 22) {
-            if (!LocalNetworkPermission.isGranted(this)) {
-                showLocalNetworkPermissionRequired();
-                return;
-            }
+        } else if (port == 22) {
             Intent intent = new Intent(MainActivity.this, SshTerminalActivity.class);
-            intent.putExtra("IP", foundIp);
+            intent.putExtra("IP", ip);
             startActivity(intent);
         }
     }
@@ -911,13 +895,13 @@ public class MainActivity extends AppCompatActivity {
         appendLog("스캔 중단됨", "#DDDDDD");
     }
 
-    private void openBrowser(boolean chooseBrowser) {
-        if (!resumed || foundIp == null) return;
-        String url = "http://"+foundIp+":"+currentPort+"/";
+    private void openBrowser(String ip, int port) {
+        if (!resumed || scanning || port != currentPort || !foundIps.contains(ip)) return;
+        String url = "http://" + ip + ":" + port + "/";
         try {
             Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
-            startActivity(chooseBrowser
-                    ? Intent.createChooser(intent, getString(R.string.choose_browser)) : intent);
+            appendLog(getString(R.string.external_browser_notice), COLOR_TEXT_SECONDARY);
+            startActivity(Intent.createChooser(intent, getString(R.string.choose_browser)));
         } catch (Exception e) {
             appendLog("웹 브라우저를 찾을 수 없습니다", "#FF6B35");
         }

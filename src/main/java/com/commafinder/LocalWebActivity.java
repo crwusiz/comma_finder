@@ -129,7 +129,10 @@ public class LocalWebActivity extends AppCompatActivity {
         address.setSingleLine(true);
         address.setEllipsize(TextUtils.TruncateAt.MIDDLE);
         toolbar.addView(address, new LinearLayout.LayoutParams(0, -2, 1));
-        toolbar.addView(button(R.string.local_web_browser, v -> openExternal(pageUrl)));
+        toolbar.addView(button(R.string.local_web_browser, v -> {
+            Toast.makeText(this, R.string.external_browser_notice, Toast.LENGTH_LONG).show();
+            openExternal(pageUrl);
+        }));
         root.addView(toolbar);
         status = text(getString(R.string.local_web_loading), 13);
         status.setPadding(dp(12), 0, dp(12), dp(6));
